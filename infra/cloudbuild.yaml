@@ -1,0 +1,49 @@
+# Cloud Build Pipeline - Sovereign Enterprise Deployment
+# Sovereign Regional Constraint: asia-south1 (Mumbai)
+
+steps:
+  # 1. Build Multi-stage Docker Container
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/workkbot/backend:$COMMIT_SHA'
+      - '-t'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/workkbot/backend:latest'
+      - '-f'
+      - 'infra/docker/Dockerfile'
+      - 'backend'
+
+  # 2. Push Image to Sovereign Artifact Registry in asia-south1
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/workkbot/backend:$COMMIT_SHA'
+
+  # 3. Deploy to Sovereign Cloud Run Service in asia-south1
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'workkbot-backend'
+      - '--image'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/workkbot/backend:$COMMIT_SHA'
+      - '--region'
+      - 'asia-south1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--service-account'
+      - 'workkbot-backend-sa@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--set-env-vars'
+      - 'PROJECT_ID=$PROJECT_ID,REGION=asia-south1'
+
+images:
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/workkbot/backend:$COMMIT_SHA'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/workkbot/backend:latest'
+
+options:
+  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+  pool:
+    noExternalIp: false

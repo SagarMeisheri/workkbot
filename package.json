@@ -1,0 +1,14 @@
+{
+  "name": "workkbot-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "frontend:dev": "pnpm --filter frontend start",
+    "frontend:typecheck": "pnpm --filter frontend run typecheck",
+    "backend:test": "cd backend && uv run pytest -v tests/",
+    "test": "pnpm run frontend:typecheck && pnpm run backend:test"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
