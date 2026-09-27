@@ -1,0 +1,243 @@
+"""Auth router handling Reviewer login, Google OAuth scopes, and MCP Connectors."""
+from typing import Optional, List
+import uuid
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
+
+from src.auth.dependencies import CurrentUser, get_current_user
+from src.auth.client import supabase_admin, _MOCK_DB
+from src.config import settings
+
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+class ReviewerLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ReviewerLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    email: str
+    org_id: str
+    role: str
+    is_demo: bool = True
+
+
+class McpConnectionResponse(BaseModel):
+    id: str
+    user_id: str
+    org_id: str
+    provider: str
+    scopes: List[str]
+    status: str
+    updated_at: str
+
+
+class OAuthAuthorizeResponse(BaseModel):
+    authorization_url: str
+    provider: str
+    state: str
+
+
+@router.post("/reviewer-login", response_model=ReviewerLoginResponse)
+async def reviewer_login(payload: ReviewerLoginRequest):
+    """
+    App Store Reviewer Demo Access (Apple Guideline 2.1).
+    Allows Apple & Google Play reviewers to login instantaneously without Google SSO or corporate MFA.
+    """
+    if payload.email.lower() != settings.REVIEWER_EMAIL.lower():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid reviewer credentials",
+        )
+    if payload.password != settings.REVIEWER_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid reviewer credentials",
+        )
+
+    reviewer_user_id = "00000000-0000-0000-0000-000000000001"
+    token = supabase_admin.generate_token_for_user(
+        user_id=reviewer_user_id,
+        email=settings.REVIEWER_EMAIL,
+        org_id=settings.REVIEWER_ORG_ID,
+        role="tool-admin",
+    )
+
+    # Ensure profile exists in mock DB
+    profile = next((p for p in _MOCK_DB["profiles"] if p["id"] == reviewer_user_id), None)
+    if not profile:
+        _MOCK_DB["profiles"].append({
+            "id": reviewer_user_id,
+            "org_id": settings.REVIEWER_ORG_ID,
+            "email": settings.REVIEWER_EMAIL,
+            "role": "tool-admin",
+            "first_name": "Reviewer",
+            "last_name": "Demo",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return ReviewerLoginResponse(
+        access_token=token,
+        user_id=reviewer_user_id,
+        email=settings.REVIEWER_EMAIL,
+        org_id=settings.REVIEWER_ORG_ID,
+        role="tool-admin",
+        is_demo=True,
+    )
+
+
+@router.get("/connectors/oauth/authorize", response_model=OAuthAuthorizeResponse)
+async def get_connector_oauth_url(
+    provider: str = Query(..., description="Provider name (e.g., google_workspace, zoho_workplace)"),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Generates provider-specific authorization URL."""
+    state = f"{current_user.id}:{current_user.org_id}:{uuid.uuid4().hex[:8]}"
+    
+    if provider == "google_workspace":
+        scopes = "openid email profile https://www.googleapis.com/auth/drive.readonly"
+        url = (
+            f"https://accounts.google.com/o/oauth2/v2/auth?"
+            f"client_id={settings.GOOGLE_CLIENT_ID}&"
+            f"redirect_uri=http://localhost:8000/api/v1/auth/connectors/oauth/callback&"
+            f"response_type=code&"
+            f"scope={scopes}&"
+            f"access_type=offline&"
+            f"prompt=consent&"
+            f"state={state}"
+        )
+    elif provider == "zoho_workplace":
+        scopes = "ZohoBooks.invoices.READ,ZohoCRM.modules.leads.READ"
+        url = (
+            f"{settings.ZOHO_ACCOUNTS_URL}/oauth/v2/auth?"
+            f"client_id={settings.ZOHO_CLIENT_ID}&"
+            f"redirect_uri=http://localhost:8000/api/v1/auth/connectors/oauth/callback&"
+            f"response_type=code&"
+            f"scope={scopes}&"
+            f"access_type=offline&"
+            f"prompt=consent&"
+            f"state={state}"
+        )
+    else:
+        url = f"https://auth.workkbot.in/connect/{provider}?state={state}"
+
+    return OAuthAuthorizeResponse(
+        authorization_url=url,
+        provider=provider,
+        state=state,
+    )
+
+
+class OAuthCallbackRequest(BaseModel):
+    provider: str
+    code: str
+    state: Optional[str] = None
+
+
+@router.post("/connectors/oauth/callback", response_model=McpConnectionResponse)
+async def connector_oauth_callback(
+    payload: OAuthCallbackRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Exchanges authorization code for tokens, seals in Supabase Vault (pgsodium),
+    and records connection in public.mcp_connections.
+    """
+    # Simulate exchange of auth code for access/refresh tokens
+    mock_tokens = {
+        "access_token": f"mcp_access_{payload.provider}_{uuid.uuid4().hex}",
+        "refresh_token": f"mcp_refresh_{payload.provider}_{uuid.uuid4().hex}",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+    }
+    
+    default_scopes = {
+        "google_workspace": ["drive.readonly", "gmail.send", "calendar.events.readonly"],
+        "zoho_workplace": ["ZohoBooks.invoices.READ", "ZohoCRM.modules.leads.READ"],
+    }.get(payload.provider, ["read", "write"])
+
+    # 1. Seal token in Supabase Vault (pgsodium)
+    vault_secret_id = supabase_admin.store_vault_secret(
+        user_id=current_user.id,
+        provider=payload.provider,
+        secret_data=mock_tokens,
+    )
+
+    # 2. Update or create MCP connection record
+    conn_id = str(uuid.uuid4())
+    now_str = datetime.now(timezone.utc).isoformat()
+    
+    # Remove existing active connection if replacing
+    _MOCK_DB["mcp_connections"] = [
+        c for c in _MOCK_DB["mcp_connections"]
+        if not (c["user_id"] == current_user.id and c["provider"] == payload.provider)
+    ]
+
+    record = {
+        "id": conn_id,
+        "user_id": current_user.id,
+        "org_id": current_user.org_id,
+        "provider": payload.provider,
+        "scopes": default_scopes,
+        "vault_secret_id": vault_secret_id,
+        "status": "active",
+        "updated_at": now_str,
+    }
+    _MOCK_DB["mcp_connections"].append(record)
+
+    return McpConnectionResponse(
+        id=conn_id,
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        provider=payload.provider,
+        scopes=default_scopes,
+        status="active",
+        updated_at=now_str,
+    )
+
+
+@router.get("/connectors", response_model=List[McpConnectionResponse])
+async def list_user_connectors(current_user: CurrentUser = Depends(get_current_user)):
+    """Lists active connected MCP integrations for the user."""
+    connections = [
+        McpConnectionResponse(
+            id=c["id"],
+            user_id=c["user_id"],
+            org_id=c["org_id"],
+            provider=c["provider"],
+            scopes=c["scopes"],
+            status=c["status"],
+            updated_at=c["updated_at"],
+        )
+        for c in _MOCK_DB["mcp_connections"]
+        if c["user_id"] == current_user.id and c["org_id"] == current_user.org_id
+    ]
+    return connections
+
+
+@router.delete("/connectors/{connection_id}")
+async def disconnect_connector(
+    connection_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Disconnects connector and purges Vault secret."""
+    target = None
+    for c in _MOCK_DB["mcp_connections"]:
+        if c["id"] == connection_id and c["user_id"] == current_user.id:
+            target = c
+            break
+            
+    if not target:
+        raise HTTPException(status_code=404, detail="Connector not found")
+        
+    vault_secret_id = target.get("vault_secret_id")
+    if vault_secret_id:
+        supabase_admin.delete_vault_secret(vault_secret_id)
+        
+    _MOCK_DB["mcp_connections"] = [c for c in _MOCK_DB["mcp_connections"] if c["id"] != connection_id]
+    return {"success": True, "connection_id": connection_id, "status": "revoked"}

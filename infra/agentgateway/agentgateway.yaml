@@ -1,0 +1,69 @@
+version: "1.5.0"
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  health_check_path: "/health"
+
+# Authentication & Security Policies
+security:
+  jwt:
+    issuer: "https://auth.workkbot.in"
+    jwks_url: "https://auth.workkbot.in/.well-known/jwks.json"
+    header: "Authorization"
+    type: "Bearer"
+  
+  # Fine-grained Common Expression Language (CEL) Policies
+  cel_policies:
+    - name: "enforce-tenant-and-user-isolation"
+      description: "Blocks cross-tenant and cross-user MCP tool execution"
+      rule: "request.auth.claims.sub == resource.owner && request.auth.claims.org_id == resource.org_id"
+      action: "ALLOW"
+    - name: "block-unauthorized-custom-tools"
+      description: "Requires tool-admin or org-admin role for unverified custom MCP endpoints"
+      rule: "resource.is_verified || request.auth.claims.role in ['tool-admin', 'org-admin']"
+      action: "ALLOW"
+
+  # Anti-Poisoning & Parameter Tampering Filters (CVE-2026-29791 Defense)
+  sanitization:
+    strip_prompt_injection_delimiters: true
+    disallowed_patterns:
+      - "system: "
+      - "assistant: "
+      - "<|im_start|>"
+      - "<|im_end|>"
+      - "[INST]"
+      - "[/INST]"
+    max_tool_description_tokens: 512
+    reject_shell_metacharacters: true
+
+# Upstream Federated MCP Routes
+mcp_routes:
+  - path: "/mcp/google-workspace"
+    upstream_type: "sse"
+    target_url: "http://127.0.0.1:9001/sse"
+    description: "Google Workspace MCP (Drive, Gmail, Docs, Calendar)"
+    auth_header_passthrough: "X-Upstream-Authorization"
+  
+  - path: "/mcp/zoho-workplace"
+    upstream_type: "sse"
+    target_url: "http://127.0.0.1:9002/sse"
+    datacenter: "in"
+    description: "Zoho Workplace MCP (.in datacenter: Zoho Books, Zoho CRM, Zoho Mail)"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
+# Primary LLM Routing with Circuit Breaker Failover
+llm_router:
+  default_route: "vertex-gemini-flash"
+  timeout_ms: 15000
+  routes:
+    - name: "vertex-gemini-flash"
+      provider: "google-vertex"
+      model: "gemini-2.0-flash"
+      location: "asia-south1"
+      max_retries: 2
+    - name: "vertex-gemini-pro"
+      provider: "google-vertex"
+      model: "gemini-2.0-pro"
+      location: "asia-south1"
+      max_retries: 2

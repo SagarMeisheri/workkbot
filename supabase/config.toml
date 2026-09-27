@@ -1,0 +1,27 @@
+# Supabase configuration for Workkbot
+project_id = "workkbot"
+
+[api]
+port = 54321
+extra_search_path = ["public", "extensions", "vault"]
+
+[db]
+port = 54322
+major_version = 16
+
+[studio]
+port = 54323
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/**", "http://localhost:8000/**"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_positive_signup = false
+enable_confirmations = false
+
+[vault]
+enabled = true
