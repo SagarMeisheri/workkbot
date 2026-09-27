@@ -61,12 +61,12 @@ This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud S
   • Replaces <EMAIL_1> with "rahul@acme.in"
   • Replaces <IN_PAN_1> with "ABCDE1234F"
                      │
-                     ▼ (Dispatched to MCP Server)
-[5. Real Tool Execution on Connected Service (e.g. Zoho/Gmail)]
-  send_invoice(recipient="rahul@acme.in", tax_id="ABCDE1234F")
-                     │
-                     ▼ (Tool Response)
-  {"status": "success", "invoice_id": "INV-101", "sent_to": "rahul@acme.in"}
+                     ▼ (Dispatched to Agentgateway 1.5.x Loopback :8080/mcp)
+[5. Agentgateway Federated Proxy & Parameter Sanitization]
+  • Evaluates CEL policy & sanitizes parameters (CVE-2026-29791)
+  • Injects Supabase Vault OAuth bearer token for upstream service
+  • Executes tool on target provider (e.g. Zoho Workplace / Google Workspace)
+  • Returns response: {"status": "success", "invoice_id": "INV-101", "sent_to": "rahul@acme.in"}
                      │
                      ▼ (Intercepted by ADK after_tool hook)
 [6. Tool Output Masking Callback]

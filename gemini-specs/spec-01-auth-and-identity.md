@@ -3,9 +3,9 @@
 ## 1. Context & Motivation
 Indian SMBs (<100 seats) predominantly operate on **Google Workspace** for employee identity, while leveraging **Zoho Workplace** (`.in` datacenter) for operational tools (Zoho Books for GST/invoicing, Zoho CRM for sales). Additionally, India's **DPDP Act 2023 (Sec 5 & 6)** mandates itemized notice and explicit statutory consent prior to processing employee data with AI models.
 
-To eliminate onboarding friction while ensuring strict compliance, Workkbot deploys a streamlined **Dual-Layer Architecture on Google Cloud**:
+To eliminate onboarding friction while ensuring strict security and isolation, Workkbot deploys a unified **Dual-Layer Architecture on Google Cloud**:
 1. **Layer 1: Google-Exclusive App Authentication (Supabase Auth in Mumbai)**: Employees sign into Workkbot solely through **Google Workspace OAuth** using basic identity scopes (`openid`, `email`, `profile`), verified against company domain whitelists, followed by mandatory DPDP statutory consent.
-2. **Layer 2: In-Chat MCP Tool Connector via Plus (`+`) Icon**: Rather than burying integrations deep in Settings, an interactive **Plus (`+`) Icon** sits directly next to the chat typing window. Clicking `+` opens a lightweight popover where users connect or disconnect **Google Workspace MCP** and **Zoho Workplace MCP** via standard OAuth 2.0, securely encrypted in **Supabase Vault (`pgsodium`)**.
+2. **Layer 2: In-Chat MCP Tool Connector via Plus (`+`) Icon with Agentgateway**: Rather than burying integrations deep in Settings, an interactive **Plus (`+`) Icon** sits directly next to the chat typing window. Clicking `+` opens a lightweight popover where users connect or disconnect **Google Workspace MCP** and **Zoho Workplace MCP** via standard OAuth 2.0. Credentials are hardware-encrypted in **Supabase Vault (`pgsodium`)**, and dynamically delegated to **Agentgateway 1.5.x** on loopback (`127.0.0.1:8080/mcp`) with per-session CEL authorization.
 
 ---
 
@@ -13,7 +13,8 @@ To eliminate onboarding friction while ensuring strict compliance, Workkbot depl
 - **Objective**: 
   - Single-click employee login via Google Workspace OAuth, verified against the organization's approved domains.
   - In-chat **`+` tool connector** adjacent to the chat input allows users to connect Google Workspace and Zoho tools on demand without leaving the conversation.
-  - User OAuth tokens for Google and Zoho MCP servers are encrypted at rest in Supabase Vault and auto-refreshed at runtime by the Cloud Run backend.
+  - User OAuth tokens for Google and Zoho MCP servers are encrypted at rest in Supabase Vault, auto-refreshed at runtime by the backend, and securely forwarded to Agentgateway for upstream MCP authentication.
+  - Agentgateway enforces per-session CEL isolation, preventing cross-tenant or cross-user tool access.
   - First-time users accept an itemized DPDP privacy notice before issuing chat or tool calls.
   - App Store reviewers receive a deterministic, isolated test login bypassing corporate Google SSO.
 - **Non-Goals**: 
@@ -29,7 +30,7 @@ To eliminate onboarding friction while ensuring strict compliance, Workkbot depl
 * `apps/backend/src/auth/`
   * `dependencies.py`: FastAPI security dependency running on Cloud Run validating Supabase JWTs (`auth.uid()`, `org_id`, `role`).
   * `client.py`: Supabase Admin client (`supabase-py`) for administrative tasks and role assignment.
-  * `delegation.py`: Interceptor retrieving user's encrypted Google/Zoho OAuth tokens from Supabase Vault to authenticate MCP sessions.
+  * `delegation.py`: Interceptor retrieving user's encrypted Google/Zoho OAuth tokens from Supabase Vault and provisioning authenticated session headers to Agentgateway (`http://127.0.0.1:8080/mcp`).
 * `supabase/migrations/20260927000001_auth_and_users.sql`:
   * `public.organizations`: (`id`, `name`, `domains`, `created_at`).
   * `public.profiles`: (`id` references `auth.users`, `org_id`, `email`, `role`, `created_at`).
@@ -70,11 +71,16 @@ An interactive **Plus (`+`) Icon** is positioned immediately next to the chat me
      - **Google Workspace**: Authorizes against `https://accounts.google.com/o/oauth2/v2/auth`. Scopes: `gmail.modify`, `calendar.events`, `drive.file`, Docs, Sheets.
      - **Zoho Workplace**: Authorizes against `https://accounts.zoho.in/oauth/v2/auth`. Scopes: `ZohoCRM.modules.ALL`, `ZohoBooks.fullaccess.ALL`, `ZohoMail.messages.ALL`, `offline`.
    - On redirect, Workkbot exchanges code for `access_token` and `refresh_token`, encrypts them into **Supabase Vault (`pgsodium`)**, and updates `public.mcp_connections`.
-3. **Instant Agent Tool Registration**:
-   - As soon as a connection completes, the active chat session registers the new tools dynamically. The user can immediately ask: *"Search my drive for Q3 sales deck"* or *"Fetch my unpaid Zoho invoices"* without page refresh.
+3. **Instant Agent Tool Registration via Agentgateway**:
+   - As soon as a connection completes, the active chat session registers the new tools through Agentgateway (`http://127.0.0.1:8080/mcp`).
+   - The user can immediately ask: *"Search my drive for Q3 sales deck"* or *"Fetch my unpaid Zoho invoices"* without page refresh.
 4. **Runtime Token Delegation & Auto-Refresh**:
    - When an agent executes an MCP tool, `delegation.py` on Cloud Run retrieves the decrypted token from Supabase Vault.
-   - If expired, Workkbot auto-refreshes using the refresh token (against Google or `https://accounts.zoho.in/oauth/v2/token`) and injects `Authorization: Bearer <access_token>` into the MCP Streamable HTTP / SSE request header.
+   - If expired, Workkbot auto-refreshes using the refresh token (against Google or `https://accounts.zoho.in/oauth/v2/token`).
+   - Workkbot injects the fresh token into the session context sent to Agentgateway (`http://127.0.0.1:8080/mcp`), which sets `Authorization: Bearer <access_token>` into the upstream Google Workspace or Zoho Workplace MCP server request.
+5. **Per-Session CEL Isolation in Agentgateway**:
+   - Agentgateway evaluates CEL authorization policies enforcing that a session can only invoke tools backed by credentials owned by `request.auth.claims.sub` (the authenticated user).
+   - Cross-user or cross-org tool discovery is blocked at the proxy layer.
 
 ### R01.3: App Store Reviewer Test Account (Apple & Google Approval Guarantee)
 - A seed script provisions a dedicated reviewer test account in Supabase Auth:
@@ -99,6 +105,7 @@ An interactive **Plus (`+`) Icon** is positioned immediately next to the chat me
   - Verifies the Supabase JWT using the Supabase JWKS endpoint.
   - Extracts `user_id = payload["sub"]`, `org_id = payload["app_metadata"]["org_id"]`, and `role = payload["app_metadata"]["role"]`.
   - Attaches user context and resolved MCP vault secret pointers to the FastAPI request state.
+  - Propagates JWT claims in loopback headers to Agentgateway (`127.0.0.1:8080`) for CEL policy evaluation.
 
 ---
 
@@ -113,3 +120,4 @@ An interactive **Plus (`+`) Icon** is positioned immediately next to the chat me
 | **VAL-01.5** | In-chat `+` icon opens tool popover and connects Google Workspace MCP via OAuth | `pnpm --filter web test:e2e tests/e2e/tool-popover.spec.ts` | [ ] |
 | **VAL-01.6** | In-chat `+` icon connects Zoho Workplace MCP via `accounts.zoho.in` and stores token in Vault | `pytest apps/backend/tests/test_zoho_oauth_vault.py` | [ ] |
 | **VAL-01.7** | Multi-tenant isolation verified: User from Org A cannot access Org B MCP connections or secrets | `pytest apps/backend/tests/test_mcp_tenant_isolation.py` | [ ] |
+| **VAL-01.8** | Token delegation from Supabase Vault to Agentgateway securely injects upstream bearer token | `pytest apps/backend/tests/test_agentgateway_token_delegation.py` | [ ] |
