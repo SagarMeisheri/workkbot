@@ -1,25 +1,46 @@
-# Spec 10: App-Store-Certified Native Mobile App (Expo SDK 52+ & Cloud Armor) (GCP Day 1)
+# Spec 10: App-Store-Certified Native Mobile App (The 5-Framework Architecture)
 
 ## 1. Context & Motivation
 Submitting an AI assistant app to the Apple App Store and Google Play Store is notorious for high rejection rates.
 Common rejection traps include:
-- **Apple Guideline 1.2 / Google Play AI Policy**: Missing in-app reporting/flagging for AI responses.
+- **Apple Guideline 1.2 & 1.2.1 / Google Play AI Policy**: Missing in-app reporting/flagging for AI responses, or lack of objectionable content filtering.
 - **Apple Guideline 2.1**: App review team locked out because enterprise SSO MFA blocks them.
-- **Apple Guideline 3.2.2**: Enterprise-only apps rejected for general public store distribution.
-- **Apple Guideline 5.1.1(v)**: Missing in-app account/data deletion flow.
-- **Privacy Manifests**: Missing declarations for required-reason native APIs.
+- **Apple Guideline 2.5.2**: Unsandboxed code execution altering native behavior.
+- **Apple Guideline 3.1.3(c)**: Enterprise-only apps rejected for general public store distribution without clear multi-tenant enterprise login paths.
+- **Apple Guideline 5.1.1**: Missing friction-free in-app account and data deletion flow.
+- **Apple Guideline 5.1.2(i)**: Undisclosed transmission of user data to third-party AI models without explicit pre-chat consent.
+- **Privacy Manifests**: Missing required-reasons API declarations (`PrivacyInfo.xcprivacy`).
 
-This spec builds the **React Native (Expo SDK 52+)** native mobile app integrated with **`@supabase/supabase-js`**, connected to **Google Cloud Run via Google Cloud Armor in `asia-south1`**, and incorporating **pre-baked App Store compliance**, guaranteeing high approval velocity.
+This spec builds the **React Native (Expo SDK 52+)** native mobile app integrated with **`@assistant-ui/react-native`**, **`@supabase/supabase-js`**, connected to **Google Cloud Run via Google Cloud Armor in `asia-south1`**, fronted by **Agentgateway 1.5.x**, and executing **Google ADK 2.0** streaming turns, guaranteeing 100% first-pass App Store approval.
 
-## 2. Objective & Non-Goals
-- **Objective**: Deliver a production-ready iOS and Android mobile app offering full chat parity, in-app AI content reporting, in-app account/memory purging, biometric unlock, offline caching, and push notifications for HITL approvals via Firebase Cloud Messaging.
-- **Non-Goals**: No consumer public signups. The app is distributed to employees via **Apple Business Manager (Custom Apps)**, **Unlisted App Distribution**, or corporate MDM.
+### **The North Star: Security & Mobile App Approval**
+- **Security**: Hardware-backed session storage in iOS Keychain / Android Keystore (`expo-secure-store`), biometric authentication (`expo-local-authentication`), Cloud Armor WAF with geofencing, and strict tenant RLS.
+- **Mobile App Approval (Apple App Store & Google Play)**:
+  - **Guideline 1.2 (AI UGC Moderation)**: Native `ActionBarPrimitive` embedding instant **[Report / Flag AI Output]** action on every message bubble.
+  - **Guideline 2.1 (App Completeness & Reviewer Sandbox)**: Deterministic review credentials (`apple-reviewer@workkbot.in`) bypassing corporate MFA to enter an isolated demo tenant with pre-seeded mock tools.
+  - **Guideline 2.5.2 (Execution of Code)**: Sandboxed `react-native-webview` for visual artifacts, strictly prohibiting native runtime code loading.
+  - **Guideline 3.1.3(c) (Enterprise Sign-In)**: Compliant enterprise B2B login without in-app purchase paywalls.
+  - **Guideline 5.1.1 (In-App Account Deletion)**: One-tap **"Delete Account & Purge Memory"** button in Settings invoking Supabase atomic erasure.
+  - **Guideline 5.1.2(i) (AI Data Consent)**: Mandatory bilingual consent modal before starting the first chat session.
+  - **Privacy Manifest**: Clean `PrivacyInfo.xcprivacy` declaring all required reasons.
+
+---
+
+## 2. The 5-Framework Architecture Mapping for Spec 10
+
+| Framework | Core Responsibility in Native Mobile | Security & Mobile Approval Guarantee |
+|---|---|---|
+| **1. Supabase** | `@supabase/supabase-js` using `expo-secure-store`; biometrics unlock; atomic in-app account deletion via `execute_dsr_erasure()`. | Hardware Keychain token storage; complete user purging meets Apple Guideline 5.1.1. |
+| **2. Google Cloud Platform (GCP)** | Cloud Armor WAF rate-limiting; Cloud Run HTTP/2 SSE streaming to mobile; Firebase Cloud Messaging (FCM) push alerts. | Edge DDoS protection and Indian geofencing; power-efficient push notifications without persistent sockets. |
+| **3. Google ADK 2.0** | Streams tokens and tool confirmation requests to mobile; manages session event checkpoints for offline recovery. | Event-based state allows resuming interrupted mobile streams cleanly. |
+| **4. assistant-ui** | `@assistant-ui/react-native` providing native `ThreadPrimitive`, `ComposerPrimitive`, and `ActionBarPrimitive` with Report action. | Smooth 60fps native gestures; direct compliance with Apple Guideline 1.2 AI safety reporting. |
+| **5. Agentgateway 1.5.x** | Mobile session proxy evaluating CEL authorization; multiplexes SSE streams; shields upstream MCP tools. | Low memory/bandwidth overhead; enforces parameter sanitization (CVE-2026-29791) on mobile tool calls. |
 
 ---
 
 ## 3. Architecture & File Modifications
 
-### Files to Create:
+### Files to Create / Update:
 * `apps/mobile/`
   * `app/`: Expo Router screens:
     * `(tabs)/chat.tsx`: Main chat screen powered by `@assistant-ui/react-native` and `useAdkRuntime`.
@@ -28,7 +49,7 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
   * `components/`:
     * `chat/mobile-action-bar.tsx`: Custom assistant-ui `ActionBarPrimitive` embedding Apple Guideline 1.2 **[Flag / Report AI Output]** action.
     * `chat/mobile-approval-card.tsx`: Native mobile HITL confirmation card using `useAdkToolConfirmations()`.
-    * `report-modal.tsx`: Content reporting dialog (inaccurate, offensive, hallucination).
+    * `report-modal.tsx`: Content reporting dialog (inaccurate, offensive, sensitive data leak).
   * `services/`:
     * `supabase.ts`: Supabase client configured with `expo-secure-store` for session persistence:
       ```typescript
@@ -75,24 +96,29 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 - Tapping the flag button opens `report-modal.tsx` offering options:
   - *Inaccurate or Hallucination*
   - *Offensive / Inappropriate Content*
-  - *Data / Privacy Concern*
+  - *Sensitive Data / Privacy Concern*
   - *Other*
-- Submissions insert directly into `public.content_reports` in Supabase Postgres and trigger immediate internal alerts.
+- Submissions insert directly into `public.content_reports` in Supabase Postgres and trigger immediate internal alerts via Google Cloud Logging.
 
 #### 2. Reviewer Sandbox Mode (Apple Guideline 2.1)
-- The login screen includes a hidden/debug trigger (or dedicated review credentials: `reviewer@workkbot-demo.internal`) that:
+- The login screen includes a hidden/debug trigger (or dedicated review credentials: `apple-reviewer@workkbot.in`) that:
   - Bypasses corporate SSO/MFA.
   - Connects to an isolated demo workspace with simulated tools.
   - Included in App Store Connect **Review Notes** to guarantee Apple reviewers can test the app immediately without login failures.
 
-#### 3. In-App Account & Data Deletion (Apple Guideline 5.1.1(v))
+#### 3. In-App Account & Data Deletion (Apple Guideline 5.1.1)
 - Settings screen contains a dedicated button: **"Delete Account & Reset AI Memory"**.
 - Tapping it:
-  1. Invokes the backend DPDP DSR erasure RPC (`execute_dsr_erasure`) to purge the employee's chat logs and `pgvector` memory embeddings.
-  2. Wipes the local SQLite cache and calls `supabase.auth.signOut()`.
-  3. Displays an explicit notice: *"Your local data and AI memory have been purged. Corporate account deactivation is managed by your workspace administrator."*
+  1. Invokes the backend DPDP DSR erasure RPC (`execute_dsr_erasure`) to purge the employee's chat logs, Vault tokens, and `pgvector` memory embeddings.
+  2. Calls `supabase.auth.admin.deleteUser()` to remove the user account completely.
+  3. Wipes the local SQLite cache and calls `supabase.auth.signOut()`.
+  4. Satisfies Apple App Store Guideline 5.1.1 requirement that account deletion must be executable in-app without requiring email or external support.
 
-#### 4. Privacy Manifest & Age Rating (17+)
+#### 4. Sandboxed Artifacts (Apple Guideline 2.5.2)
+- Generated HTML, JS, or charts render exclusively inside a dedicated `react-native-webview` pointing to `https://artifacts.workkbot.in` via V4 Signed URLs.
+- The webview has zero access to native device storage, bridge APIs, or system credentials.
+
+#### 5. Privacy Manifest (`PrivacyInfo.xcprivacy`) & Age Rating (17+)
 - `app.json` includes the required-reasons declarations for `NSPrivacyAccessedAPITypes` (disk space, timestamps, user defaults).
 - App Store Connect Content Questionnaire is marked **17+ (or Unrestricted Web Access)** to acknowledge open-ended LLM text generation.
 
@@ -108,9 +134,10 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-10.1** | Long-pressing any AI message displays the "Report Response" modal | `pytest apps/backend/tests/test_mobile_report_safety.py` | [ ] |
-| **VAL-10.2** | Reviewer credentials log in directly to demo tenant without MFA blocking | `curl -f -X POST https://$BACKEND_URL/api/v1/auth/reviewer-login` | [ ] |
-| **VAL-10.3** | "Delete Account & Reset Memory" purges local SQLite cache and executes DSR | `pytest apps/backend/tests/test_mobile_account_deletion.py` | [ ] |
+| **VAL-10.1** | Long-pressing any AI message displays the "Report Response" modal (Apple 1.2) | `pytest apps/backend/tests/test_mobile_report_safety.py` | [ ] |
+| **VAL-10.2** | Reviewer credentials log in directly to demo tenant without MFA blocking (Apple 2.1) | `curl -f -X POST https://$BACKEND_URL/api/v1/auth/reviewer-login` | [ ] |
+| **VAL-10.3** | "Delete Account & Reset Memory" purges local SQLite cache and executes DSR (Apple 5.1.1) | `pytest apps/backend/tests/test_mobile_account_deletion.py` | [ ] |
 | **VAL-10.4** | Biometric prompt gates app launch when backgrounded and resumed | Manual device test with Face ID enabled | [ ] |
 | **VAL-10.5** | Offline message queues properly and dispatches upon reconnecting to WiFi | Airplane mode test: type -> toggle WiFi on -> confirm delivery | [ ] |
 | **VAL-10.6** | Expo build generates valid `PrivacyInfo.xcprivacy` with zero missing symbols | `npx expo prebuild --clean` | [ ] |
+| **VAL-10.7** | Artifacts render strictly inside sandboxed WebView without native bridge access (Apple 2.5.2) | `pnpm --filter mobile test:e2e tests/e2e/artifact-webview.spec.ts` | [ ] |

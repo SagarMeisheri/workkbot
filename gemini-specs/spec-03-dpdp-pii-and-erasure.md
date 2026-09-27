@@ -1,25 +1,38 @@
-# Spec 03: DPDP Compliance, Cloud DLP Indian PII Redaction & Supabase DSR Erasure (GCP Day 1)
+# Spec 03: DPDP Compliance, Cloud DLP Indian PII Redaction & Supabase DSR Erasure (The 5-Framework Model)
 
 ## 1. Context & Motivation
-India's **DPDP Act 2023** imposes heavy liabilities (penalties up to ₹250 Crore) on Data Fiduciaries that fail to implement reasonable security safeguards or ignore Data Subject Requests (DSRs). 
-Sending raw employee Aadhaar numbers, PAN cards, or financial details to third-party model providers violates data minimization rules.
+India's **DPDP Act 2023** imposes heavy liabilities (penalties up to ₹250 Crore) on Data Fiduciaries that fail to implement reasonable security safeguards or ignore Data Subject Requests (DSRs). Concurrently, **Apple App Store Review Guideline 5.1.1** mandates that any app supporting account creation must provide a friction-free, complete in-app account and data deletion mechanism.
 
-### The Tool Calling Dilemma:
-If PII is destructively masked with static placeholders (e.g. `[EMAIL_REDACTED]`, `[PHONE_REDACTED]`), the LLM cannot execute tools:
-- User prompt: *"Send an invoice to customer Rahul at rahul@acme.in with PAN ABCDE1234F"*.
-- If masked to: *"Send an invoice to customer [NAME_REDACTED] at [EMAIL_REDACTED] with PAN [PAN_REDACTED]"*, the model attempts to call `send_invoice(email="[EMAIL_REDACTED]", pan="[PAN_REDACTED]")`, failing execution.
+Sending raw employee Aadhaar numbers, PAN cards, or financial details to model providers violates data minimization rules. However, destructively replacing PII with static placeholders (`[REDACTED]`) breaks tool execution.
 
-This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud Sensitive Data Protection (Cloud DLP) & Microsoft Presidio** with **Reversible In-Session Tokenization & Tool Argument Rehydration**. The LLM never sees real PII, but connected tools execute with 100% precision.
+Workkbot resolves this by routing all privacy, redaction, and erasure decisions through the **5 Core Frameworks**:
+1. **Supabase (Mumbai `ap-south-1`)**: Stores user consents, executes atomic DSR cascading erasure via PostgreSQL stored procedures, and provides hard-deletion of users via `auth.admin.deleteUser()`.
+2. **Google Cloud Platform (GCP `asia-south1`)**: Google Cloud Sensitive Data Protection (Cloud DLP) detecting Indian infoTypes (`INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER`), and Cloud Logging for statutory CERT-In incident reporting.
+3. **Google ADK 2.0 (`google-adk`)**: Stateful lifecycle callbacks (`before_model`, `before_tool`, `after_tool`) executing reversible in-session tokenization and argument rehydration.
+4. **assistant-ui (`@assistant-ui/react`, `@assistant-ui/react-native`)**: Renders inline "PII Protected" visual indicators and powers the in-app self-service DPDP Privacy & Account Deletion Portal.
+5. **Agentgateway 1.5.x**: Sanitizes outgoing tool parameters, prevents prompt injection from tool responses, and verifies CEL permissions before tool execution.
 
-## 2. Objective & Non-Goals
-- **Objective**: Use Google Cloud DLP and Microsoft Presidio to detect standard and Indian PII (Aadhaar, PAN, UPI, mobile); replace PII with deterministic in-session entity tokens (`<EMAIL_1>`, `<IN_PAN_1>`); rehydrate tool arguments in `before_tool` callbacks before MCP dispatch; enforce statutory DSR erasure across Supabase Auth, DB, and vectors; stream security events to Google Cloud Logging for CERT-In incident readiness.
-- **Non-Goals**: No persistent storage of raw PII in model logs. Token vault mappings are short-lived and discarded after session turn completion.
+### **The North Star: Security & Mobile App Approval**
+- **Security**: Complete immunization of LLM prompts against Indian PII leaks; zero residual PII in model caches; atomic cascading deletion of all user records.
+- **Mobile App Approval (Apple Guideline 5.1.1 & 5.1.2i)**: Fully functional in-app account deletion that immediately wipes user credentials, chat histories, vector embeddings, and third-party Vault secrets in a single transaction without requiring email or external support.
+
+---
+
+## 2. The 5-Framework Architecture Mapping for Spec 03
+
+| Framework | Core Responsibility in DPDP & Redaction | Security & Mobile Approval Guarantee |
+|---|---|---|
+| **1. Supabase** | `execute_dsr_erasure()` PostgreSQL RPC; `public.user_consents`; `auth.admin.deleteUser()`. | Complete atomic data purging across tables and `pgvector`; hard deletion meets Apple Guideline 5.1.1. |
+| **2. Google Cloud Platform (GCP)** | Cloud Sensitive Data Protection (DLP API in Mumbai); Google Cloud Logging structured audit sinks for CERT-In. | Data stays in `asia-south1`; CERT-In incident logs retain 7-year immutable retention via BigQuery export. |
+| **3. Google ADK 2.0** | `before_model` (PII tokenization), `before_tool` (PII rehydration), and `after_tool` (output masking) callbacks. | Reversible in-session tokenization prevents model from seeing raw PII while preserving tool execution accuracy. |
+| **4. assistant-ui** | Visual PII redaction badges in message parts; in-app Privacy Portal with one-click **[Delete Account & Purge Data]** button. | Seamless web and mobile native (`@assistant-ui/react-native`) rendering; fulfills Apple 5.1.1 and 5.1.2i requirements. |
+| **5. Agentgateway 1.5.x** | Parameter sanitization and CEL policy evaluation on rehydrated tool calls; downstream response filtering. | Blocks parameter injection (CVE-2026-29791) and prevents sensitive leaks in upstream tool failures. |
 
 ---
 
 ## 3. Architecture & File Modifications
 
-### Files to Create:
+### Files to Create / Update:
 * `apps/backend/src/compliance/`
   * `dlp_engine.py`: Google Cloud Sensitive Data Protection (DLP API) client inspecting Indian infoTypes (`INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER`).
   * `presidio_engine.py`: Microsoft Presidio `AnalyzerEngine` with custom regex recognizers for UPI and Verhoeff-checksummed Aadhaar for zero-latency local fast-path filtering.
@@ -32,24 +45,24 @@ This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud S
   * `cert_in_logger.py`: Security event logging formatted for CERT-In incident reporting to Google Cloud Logging.
 * `supabase/migrations/20260927000003_dsr_erasure.sql`:
   * PostgreSQL RPC function `execute_dsr_erasure(target_user_id UUID, executing_org_id UUID)` that atomically cascades deletion across sessions, events, memory items, and pseudonymizes audit records.
-* `apps/web/src/app/settings/privacy/`: Employee Privacy & DPDP DSR portal.
+* `apps/web/src/app/settings/privacy/page.tsx`: Employee Privacy & DPDP DSR portal.
+* `apps/mobile/src/screens/PrivacyScreen.tsx`: Native mobile privacy and account deletion interface.
 
 ---
 
 ## 4. Requirements & Implementation Details
 
-### R03.1: The Reversible Tokenization & Tool Rehydration Lifecycle on Cloud Run
-
-```
-[1. User Input in Chat]
+### R03.1: The Reversible Tokenization & Tool Rehydration Lifecycle
+```text
+[1. User Input in assistant-ui]
   "Send invoice to Rahul at rahul@acme.in with PAN ABCDE1234F"
                      │
                      ▼
-[2. Cloud DLP / Presidio + In-Session PII Vault]
+[2. Cloud DLP / Presidio + In-Session PII Vault (GCP + ADK before_model)]
   • Detects: Rahul -> <PERSON_1>, rahul@acme.in -> <EMAIL_1>, ABCDE1234F -> <IN_PAN_1>
-  • Stores in Ephemeral Vault: { "<EMAIL_1>": "rahul@acme.in", "<IN_PAN_1>": "ABCDE1234F", ... }
+  • Stores in Ephemeral Vault: { "<EMAIL_1>": "rahul@acme.in", "<IN_PAN_1>": "ABCDE1234F" }
                      │
-                     ▼ (Sanitized Prompt to Vertex AI)
+                     ▼ (Sanitized Prompt to Vertex AI via Agentgateway)
   "Send invoice to <PERSON_1> at <EMAIL_1> with PAN <IN_PAN_1>"
                      │
                      ▼
@@ -65,7 +78,7 @@ This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud S
 [5. Agentgateway Federated Proxy & Parameter Sanitization]
   • Evaluates CEL policy & sanitizes parameters (CVE-2026-29791)
   • Injects Supabase Vault OAuth bearer token for upstream service
-  • Executes tool on target provider (e.g. Zoho Workplace / Google Workspace)
+  • Executes tool on target provider (Zoho Books / Google Workspace)
   • Returns response: {"status": "success", "invoice_id": "INV-101", "sent_to": "rahul@acme.in"}
                      │
                      ▼ (Intercepted by ADK after_tool hook)
@@ -77,21 +90,21 @@ This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud S
   "I have successfully sent invoice INV-101 to <PERSON_1> at <EMAIL_1>."
                      │
                      ▼ (SSE Stream Rehydration)
-[8. Rendered in Web/Mobile Chat UI]
+[8. Rendered in assistant-ui (Web / Mobile)]
   "I have successfully sent invoice INV-101 to Rahul at rahul@acme.in."
 ```
 
 ### R03.2: Two-Tier Indian PII Engine (Regex Fast-Path + Cloud DLP)
 1. **Tier 1 (Zero-Latency Local Fast-Path via Presidio)**:
-   - **Indian Aadhaar**: 12-digit pattern `\b[2-9]{1}[0-9]{3}[-\s]?[0-9]{4}[-\s]?[0-9]{4}\b` validated via the Verhoeff checksum algorithm.
+   - **Indian Aadhaar**: 12-digit pattern validated via Verhoeff checksum algorithm.
    - **Indian PAN**: Regex `\b[A-Z]{5}[0-9]{4}[A-Z]\b`.
-   - **UPI Virtual Payment Address**: Regex `\b[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}\b`.
-   - **Indian Mobile Series**: Regex `\b(?:\+91|91|0)?[6-9]\d{9}\b`.
+   - **UPI VPA**: Regex `\b[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}\b`.
+   - **Indian Mobile**: Regex `\b(?:\+91|91|0)?[6-9]\d{9}\b`.
 2. **Tier 2 (Google Cloud Sensitive Data Protection API)**:
-   - Executes asynchronously for unstructured document scans using `INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER` infoTypes located in Mumbai (`asia-south1`).
+   - Executes asynchronously for unstructured document scans using `INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER` infoTypes in Mumbai (`asia-south1`).
 
-### R03.3: Statutory Right to Erasure via Supabase RPC (DPDP Act Sec 12)
-- Calls Supabase PostgreSQL stored procedure `execute_dsr_erasure(target_user_id, org_id)`:
+### R03.3: Statutory Right to Erasure & Account Deletion (Apple Guideline 5.1.1 Compliance)
+- Stored procedure in Supabase:
   ```sql
   CREATE OR REPLACE FUNCTION execute_dsr_erasure(target_user_id UUID, executing_org_id UUID)
   RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -103,7 +116,10 @@ This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud S
     -- 2. Hard-delete semantic memory and vectors
     DELETE FROM public.memory_items WHERE user_id = target_user_id AND org_id = executing_org_id;
     
-    -- 3. Pseudonymize tool audit logs (retain compliance counts, scrub PII)
+    -- 3. Delete connected MCP tokens from Supabase Vault
+    DELETE FROM public.mcp_connections WHERE user_id = target_user_id AND org_id = executing_org_id;
+    
+    -- 4. Pseudonymize tool audit logs (retain compliance counts, scrub PII)
     UPDATE public.tool_invocations
     SET user_id = NULL,
         arguments = '{"redacted": "DSR_ERASURE_APPLIED"}'::jsonb,
@@ -114,7 +130,7 @@ This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud S
   END;
   $$;
   ```
-- If deleting account (Apple 5.1.1(v) & DPDP), `dsr_service.py` calls `supabase.auth.admin.delete_user(target_user_id)`.
+- When initiated via the in-app **[Delete Account & Purge Data]** button in assistant-ui, `dsr_service.py` executes `execute_dsr_erasure()` and then calls `supabase.auth.admin.delete_user(target_user_id)`, guaranteeing zero residual data and 100% Apple Guideline 5.1.1 compliance.
 
 ---
 
@@ -126,5 +142,5 @@ This spec solves this on **Google Cloud (`asia-south1`)** using **Google Cloud S
 | **VAL-03.2** | Tool call emitted with tokens (`<EMAIL_1>`) is rehydrated to real email before tool executes | `pytest apps/backend/tests/test_tool_rehydration.py` | [ ] |
 | **VAL-03.3** | Tool output containing sensitive PII is masked before re-entering LLM context | `pytest apps/backend/tests/test_tool_output_masking.py` | [ ] |
 | **VAL-03.4** | Executing Supabase DSR RPC completely purges user chat logs and vector embeddings | `pytest apps/backend/tests/test_dsr_erasure_cascade.py` | [ ] |
-| **VAL-03.5** | `tool_invocations` audit log is pseudonymized and unlinked from user identity | `pytest apps/backend/tests/test_audit_pseudonymization.py` | [ ] |
+| **VAL-03.5** | In-app account deletion wipes Supabase Auth user, Vault tokens, and sessions (Apple 5.1.1) | `pytest apps/backend/tests/test_in_app_account_erasure.py` | [ ] |
 | **VAL-03.6** | Security events write CERT-In compliant JSON payloads to Google Cloud Logging | `pytest apps/backend/tests/test_cert_in_logging.py` | [ ] |

@@ -1,8 +1,18 @@
-# Constitution: Tech Stack & Architecture (Google Cloud + Supabase Day 1)
+# Constitution: Tech Stack & Architecture (The 5-Framework Canonical Pentagram)
 
-## 1. Architectural Overview
+## 1. Architectural Overview & The 5 Core Frameworks
 
-Monorepo (pnpm workspaces + Turborepo), structured across four unified planes: client, Google Cloud serverless backend/agentic execution, tool (MCP), and the **Supabase Unified Data & Auth Platform (Mumbai)**.
+Workkbot 2.0 is architecturally anchored by **5 foundational frameworks**. Every architectural, product, and implementation decision must explicitly route through one or a combination of these five pillars:
+
+1. **Supabase (Mumbai `ap-south-1`)**: The Unified Identity, Relational Data, Hardware Vault, Vector (`pgvector`), and Realtime Data Backbone.
+2. **Google Cloud Platform (GCP `asia-south1`)**: The Serverless Compute, Enterprise Edge (Cloud Armor WAF), Statutory PII Sanitization (Cloud DLP), Secure Object Storage (GCS), and Immutable Governance Sink (BigQuery / Cloud Logging).
+3. **Google ADK 2.0 (`google-adk`)**: The Stateful Agentic Runtime, Multi-Turn Reasoning Engine, Model Context Protocol Toolset (`McpToolset`), Session Manager, and User-Centric In-Chat HITL Orchestrator (`ToolContext.request_confirmation()`).
+4. **assistant-ui (`@assistant-ui/react`, `@assistant-ui/react-google-adk`, `@assistant-ui/react-native`)**: The Declarative Chat Surface, Canonical UI Primitive Catalog, Streaming State Harness, Mobile Native Interface, and Generative UI Renderer.
+5. **Agentgateway 1.5.x (Rust)**: The Agentic Data Plane, Dynamic MCP Tool Federation Engine, OpenAPI Virtualizer, Tool Poisoning / Shadowing Defense, CEL Policy Arbiter, Resilient LLM Router, and A2A Protocol Gateway.
+
+### **The North Star: Security & Mobile App Approval**
+- **Security Invariant**: Zero Trust, strict tenant isolation via Supabase RLS, hardware-grade credential encryption in Supabase Vault, Cloud Armor WAF with Indian geofencing, Cloud Run Direct VPC Egress blocking metadata SSRF (`169.254.169.254`), Agentgateway prompt injection / tool poisoning filtering, real-time Cloud DLP redaction, and DPDP Act 2023 statutory compliance.
+- **Mobile App Store Approval Invariant**: Built-in compliance with **Apple App Store Review Guidelines** (Guideline 1.2 & 1.2.1 AI UGC moderation/flagging, Guideline 2.1 App Completeness & Reviewer Sandbox, Guideline 2.5.2 Sandboxed Artifacts, Guideline 3.1.3(c) Enterprise B2B sign-in, Guideline 4.0 Design excellence, Guideline 5.1.1 Mandatory In-App Account & Memory Erasure, Guideline 5.1.2(i) AI Third-Party Data Transmission Consent) and **Google Play AI Safety & Data Erasure Policies**.
 
 ```text
 workkbot/
@@ -11,7 +21,7 @@ workkbot/
 │   ├── mobile/               # React Native (Expo SDK 52+) + @assistant-ui/react-native + Supabase Client + FCM
 │   └── backend/              # Unified Python 3.12 FastAPI + Google ADK 2.0 + Supabase-py -> Cloud Run
 ├── packages/
-│   ├── shared-types/         # Zod & TypeScript shared schemas (Message, Tool, Approval)
+│   ├── shared-types/         # Zod & TypeScript shared schemas (Message, Tool, Approval, Consent)
 │   ├── ui/                   # Shared React UI & assistant-ui elements (web & admin)
 │   ├── eslint-config/        # Monorepo linting standards
 │   └── tsconfig/             # Base TypeScript configurations
@@ -29,54 +39,73 @@ workkbot/
 └── package.json              # Monorepo root scripts
 ```
 
-## 2. Core Dependencies & Versions
+---
 
-- **Google Cloud Platform (Day-1 Region: `asia-south1` / Mumbai)**:
-  - **Compute Engine / Serverless**: **Google Cloud Run Multi-Container Pod**:
-    - **Main Container**: `apps/backend` (Python 3.12 FastAPI + ADK 2.0 Runner, port 8000).
-    - **Sidecar Container**: **Agentgateway 1.5.x** (Rust-based Agentic Data Plane & MCP Gateway, loopback `127.0.0.1:8080`).
-    - **Frontend Container**: `apps/web` (Next.js 15 SSR).
-  - **CI/CD Pipeline**: **Google Cloud Build** building and pushing multi-arch images directly to **Google Artifact Registry** (`asia-south1-docker.pkg.dev`).
-  - **Edge & Security**: **Google Cloud Armor** (WAF, rate limiting, DDoS protection, Indian geofencing `origin.region_code == 'IN'`, and pre-configured OWASP/LFI/RCE rules) + **Google Cloud Load Balancing** (managed SSL certificates).
-  - **Network Isolation & SSRF Shielding**: Cloud Run **Direct VPC Egress** (`--vpc-egress=all-traffic`) with VPC Firewall rules strictly blocking container egress to Link-Local Cloud Metadata (`169.254.169.254/32` and `metadata.google.internal`) and unauthorized RFC1918 subnets.
-  - **Identity & IAM Least Privilege**: Dedicated Service Account (`workkbot-backend-sa`) restricted strictly to `roles/aiplatform.user`, `roles/dlp.user`, and `roles/logging.logWriter` (no Editor/Owner permissions).
-  - **AI & Embedding Models**: **Google Vertex AI** (`gemini-2.0-flash`, `gemini-2.0-pro`, `text-embedding-004`) fronted by Agentgateway's LLM proxy with automated circuit breaking and secondary provider failover.
-  - **DPDP PII Engine**: **Google Cloud Sensitive Data Protection (Cloud DLP)** with Indian infoTypes (`INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER`).
-  - **Artifact Object Storage**: **Google Cloud Storage (GCS)** in `asia-south1` with V4 Signed URLs and Uniform Bucket-Level Access.
-  - **Observability & Audit**: **Agentgateway OpenTelemetry (OTel)** metrics, traces, and logs streamed directly to **Google Cloud Logging**, **Google Cloud Trace**, and **Google BigQuery** (immutable 7-year audit retention).
-- **Agentic Data Plane & Gateway**: **Agentgateway 1.5.x (Rust)**:
-  - **MCP Tool Federation**: Aggregates disparate MCP servers (Google Workspace, Zoho Workplace, GitHub, Notion) behind a single loopback endpoint (`http://127.0.0.1:8080/mcp`), managing stateful JSON-RPC sessions and fanning out `tools/list`.
-  - **OpenAPI-to-MCP Virtualization**: Automatically converts existing Indian SMB REST APIs (Tally, Zoho Books, internal CRMs) into MCP-native tools with CVE-2026-29791 parameter sanitization.
-  - **Tool Poisoning & Shadowing Defense**: Native multi-layer content filters sanitizing prompt injection delimiters from tool descriptions and blocking unauthorized duplicate/shadowed tool registrations.
-  - **Authorization**: Fine-grained Common Expression Language (CEL) policy engine enforcing role-based tool visibility and blocking SSRF targets.
-  - **A2A Protocol**: Built-in Agent-to-Agent communication proxy for departmental agent collaboration.
-- **Unified Data & Platform Backend**: **Supabase (Mumbai ap-south-1)**:
-  - **Auth**: Supabase Auth (OIDC, Google Workspace OAuth, Zoho OAuth, Enterprise SAML, Passkeys, PKCE, native `deleteUser` account erasure).
-  - **Database**: Supabase PostgreSQL 16+ with native **Row-Level Security (RLS)** using `auth.uid()` and `auth.jwt() ->> 'org_id'`.
-  - **Vault**: Supabase Vault (`pgsodium` / `vault.secrets`) for hardware-grade encryption of user MCP OAuth tokens at rest.
-  - **Vector**: Supabase Vector (`pgvector` `^0.8.0`) with HNSW cosine distance indexing (`<=>`) backing ADK's `BaseMemoryService`.
-  - **Realtime**: Supabase Realtime (`postgres_changes` & Broadcast) driving live In-App Notification Center sync and approval state.
-- **Agentic Harness**: **Google ADK 2.0** (`google-adk`, pinned explicit version) — Runner, `LlmAgent`, `McpToolset`, `DatabaseSessionService`, and `BaseMemoryService`.
-- **Backend API & Streaming**: **FastAPI** `^0.115.x` + `supabase-py` `^2.11.x` + `asyncpg` `^0.30.x`; async SSE streaming over HTTP/2; Pydantic `^2.10.x`.
-- **Web Frontend & Chat Architecture**: **Next.js** `15.2.x` / `16.x` (App Router), **assistant-ui** (`@assistant-ui/react` `^0.15.x`, `@assistant-ui/react-google-adk`, `@assistant-ui/react-markdown`, `@assistant-ui/react-generative-ui`), `@supabase/ssr` `^0.5.x`, **React** `19.0.x`, **Tailwind CSS** `^4.0.x`, **shadcn/ui**, **TanStack Query** `^5.66.x`, **Lucide React**.
-  - **Canonical UI Catalog**:
-    - **Sidebar**: `ThreadListSidebar`, `ThreadListPrimitive.New` (`+ New thread`), `ThreadListItemPrimitive`, and bottom user auth footer (`-> Sign in` / profile).
-    - **Header**: `ThreadHeader` with title, options (`...`), and Canvas expand toggle (`↗`).
-    - **Composer**: Floating container embedding `ComposerPrimitive.Input`, `+` tool connector popover (`tool-popover.tsx`), `ModelSelector` (Vertex AI Flash/Pro tier), speech-to-text dictation microphone, and `ComposerPrimitive.Send` (`↑`).
-    - **Suggestions**: Staggered prompt chips via `SuggestionPrimitive`.
-    - **Stream & HITL**: `Reasoning`, `Sources`, `BranchPickerPrimitive`, `ApprovalCard`, and `ToolGroup`.
-- **Mobile Client**: **React Native 0.76+** via **Expo SDK 52+** (New Architecture enabled), **assistant-ui** (`@assistant-ui/react-native`), `@supabase/supabase-js` `^2.48.x`, `expo-router`, `expo-secure-store`, `expo-local-authentication`, `react-native-webview`.
-- **Admin & Observability Tools**: `@assistant-ui/react-o11y` (visual trace waterfalls in web console) and `@assistant-ui/react-ink` (terminal CLI for DevOps administration).
-- **Code Execution Sandbox**: **E2B** Firecracker microVMs (`e2b-code-interpreter`) with zero container host filesystem access and strict path traversal sanitization.
-- **Testing & Quality**: Pytest (`backend`), Playwright / Vitest (`web`), Ruff / Black (Python), ESLint / Prettier (TypeScript).
+## 2. The 5 Core Frameworks: Deep Architecture & Version Pinning
 
-## 3. Architectural Constraints & Code Rules
+### Framework 1: Supabase (Day-1 Region: Mumbai `ap-south-1`)
+- **Authentication**: Supabase Auth (GoTrue) handling Google Workspace OAuth, Enterprise SAML, Passkeys, and secure token lifecycle. Native `auth.admin.deleteUser()` driving the Apple Guideline 5.1.1 in-app account deletion pipeline.
+- **Relational Storage & RLS**: PostgreSQL 16+ where every single table enforces Row-Level Security bound to `auth.uid()` and `auth.jwt() ->> 'org_id'`, guaranteeing zero cross-tenant data leaks.
+- **Hardware Vault (`pgsodium`)**: Supabase Vault stores connected MCP OAuth tokens (Google, Zoho, M365, Notion, Slack, Canva, HubSpot) encrypted with hardware-managed keys. Plaintext access tokens are strictly banned.
+- **Vector Database**: `pgvector` (`^0.8.0`) configured with HNSW cosine distance indexing (`vector_cosine_ops`, `<=>`) backing ADK 2.0's Semantic Memory.
+- **Realtime Pub/Sub**: Supabase Realtime (`postgres_changes` & Broadcast) driving instant In-App Notification Center updates, approval states, and presence.
 
-1. **Day-1 Google Cloud Deployment with Multi-Container Cloud Run**: Services run natively on Google Cloud Serverless (`asia-south1`). The backend deploys as a multi-container Cloud Run instance with FastAPI (ADK Runner) and Agentgateway 1.5.x (Rust) communicating via ultra-fast loopback (`127.0.0.1:8080`), avoiding cross-service internet hops.
-2. **Supabase as Single Source of Data Truth**: All identity, permissions, and database tables are managed within Supabase in Mumbai. Every table carries an `org_id` and strict Supabase RLS policies.
-3. **Hardware Encryption in Supabase Vault**: User MCP OAuth tokens are stored in `vault.decrypted_secrets` or encrypted with `pgsodium`. Plaintext token columns are a strict constitutional violation.
-4. **Agentgateway as Sole MCP & LLM Data Plane**: The FastAPI backend does not manage raw SSE connections or multi-server fan-out to external MCP endpoints. All MCP server sessions and LLM calls route through Agentgateway, enforcing anti-poisoning, CEL RBAC, and parameter sanitization.
-5. **SSRF & Metadata Server Egress Immunity**: Cloud Run Direct VPC Egress firewall rules unconditionally drop traffic to `169.254.169.254` and `metadata.google.internal`. Dynamic URL inputs are verified against DNS rebinding, IPv4-mapped IPv6 (CVE-2026-31943), and private CIDR ranges prior to connection.
-6. **In-App First Alerting & Assistant-UI Primitives**: All approval requests, tool execution statuses, and notifications surface inside the Workkbot web and mobile apps via Supabase Realtime channels, Firebase Cloud Messaging (FCM), and native assistant-ui primitives (`ApprovalCard` powered by `useAdkToolConfirmations()`, `BranchPickerPrimitive`, and mobile `ActionBarPrimitive`). No external chat bots (WhatsApp/Slack) are permitted for v1.
-7. **DPDP Statutory Compliance & Right to Erasure**: Statutory consent logged in Supabase. Real-time Indian PII masking (Aadhaar, PAN, UPI) in `before_model` callback via Google Cloud DLP and regex. DSR erasure cascades through Supabase Auth, database tables, and vector embeddings in a single atomic transaction.
-8. **Isolated-Origin & Sanitized Artifact Execution**: Code execution executes exclusively in isolated E2B Firecracker microVMs. Artifact filenames are strictly sanitized against path traversal (`../`) prior to GCS persistence, and render exclusively on a separate subdomain iframe with a strict CSP.
+### Framework 2: Google Cloud Platform (Day-1 Region: `asia-south1` / Mumbai)
+- **Compute Plane**: **Google Cloud Run Multi-Container Pod**:
+  - Main Container: `apps/backend` (Python 3.12 FastAPI + Google ADK 2.0 Runner, port 8000).
+  - Sidecar Container: **Agentgateway 1.5.x** (Rust-based data plane, loopback `127.0.0.1:8080`).
+  - Frontend Container: `apps/web` (Next.js 15 SSR).
+- **CI/CD & Registries**: Google Cloud Build pushing multi-arch container images to Google Artifact Registry (`asia-south1-docker.pkg.dev`).
+- **Edge Security & Anti-DDoS**: Google Cloud Armor with Indian geofencing (`origin.region_code == 'IN'`), OWASP Core Ruleset, rate-limiting, and Cloud Load Balancing SSL.
+- **Network Egress Hardening**: Cloud Run Direct VPC Egress (`--vpc-egress=all-traffic`) with VPC Firewall rules strictly blocking access to Link-Local Metadata (`169.254.169.254/32` and `metadata.google.internal`), eliminating SSRF token theft.
+- **AI Models & Embeddings**: Google Vertex AI (`gemini-2.0-flash`, `gemini-2.0-pro`, `text-embedding-004`) fronted by Agentgateway.
+- **Statutory PII Sanitization**: Google Cloud Sensitive Data Protection (Cloud DLP) configured with Indian infoTypes (`INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER`).
+- **Artifact Object Storage**: Google Cloud Storage (GCS) with V4 Signed URLs and Uniform Bucket-Level Access.
+- **Immutable Audit**: Google Cloud Logging, Cloud Trace, and Google BigQuery with a 7-year retention lock for DPDP compliance.
+
+### Framework 3: Google ADK 2.0 (`google-adk` Python Framework)
+- **Runtime & Execution**: `google-adk` Runner hosting stateful `LlmAgent` and multi-turn conversation loops in-process.
+- **Tool Orchestration**: `McpToolset` interfacing directly with Agentgateway's unified loopback endpoint (`http://127.0.0.1:8080/mcp`).
+- **In-Chat HITL**: Mutating actions trigger `ToolContext.request_confirmation()`, pausing execution cleanly until the user approves or denies in the chat stream.
+- **Session & Memory Persistence**: `DatabaseSessionService` persisting episodic sessions into Supabase PostgreSQL, and `BaseMemoryService` interfacing with Supabase `pgvector`.
+- **Lifecycle Interceptors**: `before_model` callbacks orchestrating real-time Cloud DLP masking and skill routing prior to LLM dispatch.
+
+### Framework 4: assistant-ui (`@assistant-ui/react` & `@assistant-ui/react-native`)
+- **Web & Mobile Parity**: Powers both the Next.js 15 web application (`@assistant-ui/react`) and the Expo SDK 52 mobile application (`@assistant-ui/react-native`).
+- **ADK Runtime Bridge**: Connected via `@assistant-ui/react-google-adk` (`useAdkRuntime`, `useAdkToolConfirmations`, `useAdkAuthRequests`).
+- **Canonical UI Element Catalog**:
+  - `ThreadListSidebar` with collapsible toggle `[\|]`, `+ New thread`, and bottom user auth footer (`-> Sign in` / employee profile).
+  - Floating Composer with `+` action dropdown (`tool-popover.tsx`), model selector pill, dictation microphone, and send button (`↑`).
+  - Staggered prompt chips (`SuggestionPrimitive`).
+  - Chat stream with `Reasoning`, `Sources`, `BranchPickerPrimitive`, `ToolGroup`, and inline `ApprovalCard`.
+  - **App Store Mandatory AI Controls**: Native `ActionBarPrimitive` embedding instant **"Flag / Report AI Response"** modal for Apple Guideline 1.2 compliance.
+- **Generative UI**: `@assistant-ui/react-generative-ui` (`present({ display })`) dynamically rendering rich business ledgers, GST tables, and invoices.
+- **Observability & Administration**: `@assistant-ui/react-o11y` for trace timeline visualizations and `@assistant-ui/react-ink` for terminal DevOps management.
+
+### Framework 5: Agentgateway 1.5.x (Rust Agentic Data Plane)
+- **MCP Tool Federation**: Aggregates disparate MCP servers (Google Workspace, Zoho Workplace, GitHub, Notion, Slack) behind a single loopback endpoint (`http://127.0.0.1:8080/mcp`), managing JSON-RPC connections and stateful sessions.
+- **OpenAPI-to-MCP Virtualization**: Compiles OpenAPI 3.0 specs (Tally Prime, Zoho Books, internal SMB APIs) into native MCP tools at runtime.
+- **Prompt Injection & Tool Poisoning Defense**: Multi-layer content filters sanitizing prompt injection delimiters from tool descriptions and blocking unauthorized duplicate/shadowed tool registrations.
+- **Parameter Sanitization**: Automatic schema validation blocking shell metacharacters and parameter tampering (mitigating CVE-2026-29791).
+- **Fine-Grained CEL Authorization**: Common Expression Language policy engine enforcing per-user, per-role tool execution permissions.
+- **Resilient LLM Routing**: Upstream proxy to Vertex AI Gemini with automated circuit breaking, token rate limiting, and fallback routing.
+- **Agent-to-Agent (A2A)**: Native protocol proxy for inter-agent delegation between specialized departmental agents.
+
+---
+
+## 3. The 5-Framework Decision Routing Rule
+
+For every feature, architectural modification, or bug fix:
+1. **Identify the Framework Mapping**: The solution must be mapped across Supabase, GCP, Google ADK 2.0, assistant-ui, and Agentgateway. Custom scratchpad code outside these 5 boundaries is strictly forbidden.
+2. **Validate Security**:
+   - Is all persistent tenant state protected by Supabase RLS?
+   - Are third-party tokens sealed in Supabase Vault?
+   - Does traffic egress comply with Cloud Run Direct VPC Egress rules (blocking `169.254.169.254`)?
+   - Are tool calls filtered by Agentgateway anti-poisoning?
+   - Is Indian PII scrubbed via Cloud DLP before reaching the model?
+3. **Validate Mobile App Store Approval**:
+   - Does this feature violate Apple App Store Review Guidelines (1.2, 2.1, 2.5.2, 3.1.3c, 4.0, 5.1.1, 5.1.2i) or Google Play policies?
+   - Does every AI-generated message provide an in-app flag/report mechanism?
+   - Is the user able to delete their account and purge all memory completely in-app?
+   - Can an App Store reviewer test the complete feature using the demo credentials without corporate SSO?
+   - Does UI render flawlessly on both web and `@assistant-ui/react-native`?

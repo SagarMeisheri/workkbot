@@ -1,35 +1,36 @@
-# Constitution: Mission & Non-Negotiable Boundaries
+# Constitution: Mission, Boundaries & The 5 Frameworks
 
 ## 1. Project Vision
-**Workkbot** is a secure, private, in-app AI assistant platform engineered specifically for organizations of under 100 employees, built and deployed on **Google Cloud Platform (asia-south1 / Mumbai)** from Day 1 with **Supabase (Mumbai)** as the unified data, auth, vector, and storage backbone. It delivers conversational chat via Google ADK 2.0 and Vertex AI, dynamic tool discovery via the Model Context Protocol (MCP), generative Artifacts backed by Google Cloud Storage, and persistent memory across web and native mobile apps—combining statutory compliance with India's **DPDP Act 2023** and **guaranteed mobile App Store approval**.
+**Workkbot 2.0** is an enterprise-grade AI assistant platform purpose-built for organizations of under 100 employees, centered around **5 foundational frameworks**: **Supabase**, **Google Cloud Platform (GCP)**, **Google ADK 2.0**, **assistant-ui**, and **Agentgateway**.
+
+### The North Star: Security & Mobile App Approval
+Every product decision, technical implementation, and architectural design is guided by two non-negotiable North Stars:
+1. **Uncompromising Enterprise Security**: Complete data isolation, zero-trust RLS policies in Supabase, hardware encryption in Supabase Vault, Cloud Armor WAF with Indian geofencing on GCP, metadata SSRF immunity via VPC firewall, real-time Cloud DLP PII sanitization, and Agentgateway tool poisoning defense, guaranteeing full statutory compliance with India's **DPDP Act 2023**.
+2. **Guaranteed Mobile App Store Approval**: Complete, built-in adherence to **Apple App Store Review Guidelines** (Guidelines 1.2 & 1.2.1 UGC/AI safety & flagging, 2.1 App completeness with dedicated Reviewer Sandbox, 2.5.2 sandboxed artifact execution, 3.1.3c enterprise sign-in, 4.0 design excellence, 5.1.1 mandatory in-app account & memory deletion, 5.1.2i AI data consent) and **Google Play AI Safety Policies** delivered via `@assistant-ui/react-native`.
+
+---
 
 ## 2. Target Audience & Personas
-- **Primary Persona (The Employee)**: Works exclusively inside the Workkbot web and mobile apps. Connects external accounts (Google Workspace, Zoho Workplace as initial seed starters, and an open-ended catalog of enterprise MCP servers) via one-click in-chat OAuth in the Connectors Hub, interacts with dynamically discovered tools, and authorizes personal write actions via in-chat interactive cards.
-- **Secondary Persona (Org Admin / IT Lead)**: Manages IdP-federated user roles, enables allowed MCP providers, monitors token consumption in Indian Rupees (INR), and accesses compliance audit logs and DPDP Data Subject Request (DSR) tools.
+- **Primary Persona (The Employee)**: Interacts primarily inside the Workkbot web and mobile apps powered by `assistant-ui`. Connects work tools via the in-composer Connectors Hub (`+`), invokes dynamically discovered MCP tools federated by Agentgateway, and authorizes write actions inline in the chat stream via ADK 2.0 confirmation cards.
+- **Secondary Persona (Org Admin / IT Lead)**: Governs provider allowlists in Supabase, monitors real-time token spend in Indian Rupees (INR) via GCP Cloud Monitoring, reviews immutable compliance logs streamed to Google BigQuery, and manages employee roles.
+- **Auditor & Reviewer Persona (App Store Reviewer & DPDP Auditor)**: Given dedicated demo credentials (`apple-reviewer@workkbot.in`) allowing instantaneous login into an isolated Supabase tenant without corporate Google SSO, with pre-seeded data, ready to verify all AI safety and account deletion flows.
 
-## 3. Product Scope & Core Capabilities
-- **Day-1 Google Cloud Serverless & Agentic Deployment**: The unified FastAPI backend (hosting the Google ADK 2.0 Runner) and **Agentgateway 1.5.x** (Rust proxy) deploy as a multi-container pod on **Google Cloud Run** in `asia-south1` (Mumbai), alongside the Next.js 15 web app, with zero-cold-start and native HTTP/2 SSE streaming consumed directly by **assistant-ui** (`@assistant-ui/react-google-adk`).
-- **In-App Focused Workspace & Canonical Assistant-UI Layout**: All interactions, alerts, and workflows occur strictly inside the Workkbot web and mobile apps converging to the canonical **assistant-ui** interface:
-  - **Collapsible Sidebar (`ThreadListSidebar`)**: App branding with sidebar toggle `[\|]`, prominent `+ New thread` action, categorized conversation threads, and bottom employee profile / DPDP privacy portal footer (`-> Sign in` when unauthenticated).
-  - **Thread Header**: Active thread title with right-aligned options (`...`) and dual-pane Canvas/Artifact expand toggle (`↗`).
-  - **Centered Welcome Experience**: High-impact **"How can I help you today?"** (or personalized *"Back at it, [name]"*) greeting above a floating composer container.
-  - **Integrated Composer Bar**: Floating input (`"Type / for skills"`) with bottom-bar controls:
-    - **`+` Action Button**: Rich hierarchical dropdown opening file/photo attachment (`⌘U`), screenshot capture, project binding, `Skills >` (Spec 08), `Connectors >` (opens the Connectors Hub Modal with `[ Yours | Discover ]`, search, and `+ Add ▾` for Google Workspace, Zoho, Microsoft 365, Notion, Slack, Canva, Figma, Atlassian, HubSpot, and custom MCP servers), `Add plugins` (Spec 05), and `Web search` (`✓` grounding toggle).
-    - **Mode Toggle Pill**: `[ Chat | Canvas ]` (or `[ Chat | Cowork ]` for collaborative artifact co-editing).
-    - **Model Selector Pill**: Interactive dropdown toggling between Vertex AI models (`Gemini 2.0 Flash` [Low latency] vs `Gemini 2.0 Pro` [High reasoning]).
-    - **Voice & Send**: Native microphone speech-to-text dictation, voice waveform orb, and dynamic send arrow (`↑`).
-  - **Prompt Suggestion Cloud**: Centered staggered chips (`SuggestionPrimitive`) tailored for Indian SMBs (*"Compute March GST"*, *"Zoho unpaid invoices"*, *"Tally stock ledger"*, *"What does AI remember about me?"*).
-- **Dynamic MCP Tool Discovery & Federation**: No hardcoded or fixed tool connectors. Agentgateway federates MCP server endpoints; users simply authorize their accounts via OAuth. Available tools are discovered dynamically via `tools/list` with automated tool poisoning and shadowing defense.
-- **100% User-Centric In-App HITL via Assistant-UI**: Any tool operation classified by the backend as mutating/write-capable is presented to the **individual user directly in their chat stream** as an interactive assistant-ui `ApprovalCard` powered by `useAdkToolConfirmations()`. In-app notification drawers and push notifications alert users when away from the thread. No IT admin approval bottlenecks.
-- **Dynamic Generative UI for Indian SMBs**: Financial data from virtualized ERP tools (Tally Prime GST, Zoho Books invoices) renders into rich interactive cards and data tables via `@assistant-ui/react-generative-ui` (`present({ display })`).
-- **Tri-Layer Memory System**: Episodic (ADK session/event log in Supabase Postgres), Semantic (Supabase Vector with `pgvector` HNSW index and Vertex AI `text-embedding-004`), and Procedural (authored in `skills/`), paired with an assistant-ui self-service transparency and deletion drawer (`unstable_useInteractable`).
-- **Generative Artifacts & Split Canvas**: Short-lived sandboxed code execution (E2B microVMs or local Docker runner) backed by Google Cloud Storage (GCS) and rendered in a dual-pane workspace using `AssistantFrameProvider`, `useAdkArtifacts()`, and assistant-ui `CodeDiff` components, toggled via the `↗` header action.
-- **Mobile App Store Readiness**: Built-in pre-compliance for Apple App Store (Guidelines 1.2, 2.1, 3.2.2, 4.0, 5.1.1) and Google Play AI policies using native `@assistant-ui/react-native` with flag/report actions embedded in `ActionBarPrimitive`.
+---
+
+## 3. The 5-Framework Architecture Mapping
+
+Every capability in Workkbot routes through these 5 pillars:
+1. **Supabase (Unified Data Backbone)**: Manages authentication, tenant-isolated tables via PostgreSQL Row-Level Security (RLS), hardware token encryption via Supabase Vault (`pgsodium`), vector embeddings with `pgvector` HNSW (`<=>`), and instant UI sync via Supabase Realtime.
+2. **Google Cloud Platform (GCP)**: Multi-container Cloud Run pod hosting backend services in Mumbai (`asia-south1`), Cloud Build CI/CD, Cloud Armor WAF and DDoS defense, Cloud DLP statutory Indian PII masking (Aadhaar, PAN, UPI), GCS signed artifact storage, and BigQuery immutable audit sinks.
+3. **Google ADK 2.0 (`google-adk`)**: Python agentic runtime driving conversational turns, `LlmAgent`, `McpToolset`, `DatabaseSessionService`, `BaseMemoryService`, `before_model` interceptors, and user-centric in-chat HITL (`ToolContext.request_confirmation()`).
+4. **assistant-ui**: Unified, cross-platform design system (`@assistant-ui/react` and `@assistant-ui/react-native`) providing canonical primitives (`ThreadListSidebar`, floating composer with `+` action menu, model selector, `BranchPickerPrimitive`, `Reasoning`, `Sources`, `ApprovalCard`, `@assistant-ui/react-generative-ui`, and `@assistant-ui/react-o11y`).
+5. **Agentgateway 1.5.x**: High-performance Rust data plane running on loopback (`127.0.0.1:8080`), federating external MCP servers, virtualizing OpenAPI specs to MCP, blocking prompt injection and tool poisoning (CVE-2026-29791), enforcing CEL access control, and providing resilient LLM proxy routing to Vertex AI.
+
+---
 
 ## 4. Non-Negotiable Boundaries & Constraints
-- **Boundary 1 (Day-1 GCP Deployment in Mumbai)**: All backend workloads and data storage reside within Google Cloud's Mumbai region (`asia-south1`) to satisfy the Indian DPDP Act 2023 data localization principles. Cloud Build, Artifact Registry, Cloud Run, and Cloud Armor are deployed from Day 1.
-- **Boundary 2 (In-App Focus & Privacy)**: All approvals and alerts live inside the Workkbot application and native push notifications. Third-party messaging integrations (e.g. WhatsApp, Telegram) are explicitly out of scope for v1.
-- **Boundary 3 (Dynamic Tools via Standard MCP & Agentgateway)**: No custom, proprietary, or hardcoded tool APIs. External capabilities must connect strictly via standard Model Context Protocol (MCP) servers federated through Agentgateway with dynamic discovery and anti-poisoning filters.
-- **Boundary 4 (DPDP Act 2023 Compliance & SSRF Immunity)**: Statutory bilingual notice and consent upon initial login. Real-time Indian PII masking (Aadhaar, PAN, UPI) via Google Cloud DLP prior to model dispatch. Automated Right to Erasure (DSR) pipeline cascading through Supabase Auth, database tables, and vector embeddings. Cloud Run VPC egress firewall blocks access to `169.254.169.254`.
-- **Boundary 5 (Sized for <100 Seats on Lean Stack)**: Multi-container Cloud Run architecture: Python 3.12 FastAPI (hosting the ADK 2.0 Runner) paired with Agentgateway 1.5.x (Rust data plane on loopback `127.0.0.1:8080`), backed by the unified Supabase platform (PostgreSQL, Auth, Vault, Vector, Realtime) in Mumbai. No premature microservices, Kafka, standalone Redis clusters, or separate vector databases.
-- **Out of Scope (v1)**: Multi-tenant public hosting; third-party chat app bots (WhatsApp/Slack bots); consumer self-registration without company domain verification; fine-tuning custom models on premise.
+- **Boundary 1 (Day-1 GCP & Supabase Deployment in Mumbai)**: All backend services and databases reside strictly in `asia-south1` (Mumbai) to satisfy Indian DPDP statutory data localization requirements.
+- **Boundary 2 (In-App Exclusivity & Zero External Chat Bots)**: All workflows, approvals, and alerts occur inside the Workkbot web and mobile apps via assistant-ui primitives and native push notifications (FCM). External messaging platforms (WhatsApp, Slack bots) are strictly excluded from v1 to maintain data sovereignty.
+- **Boundary 3 (Dynamic Tools via Standard MCP & Agentgateway)**: No proprietary, hardcoded tool connectors. All external integrations run as standard Model Context Protocol (MCP) servers federated by Agentgateway.
+- **Boundary 4 (DPDP Statutory Compliance & Zero Residual Erasure)**: Bilingual statutory notice upon login. Real-time Indian PII masking via Cloud DLP prior to model dispatch. Right to Erasure cascades through Supabase Auth, database records, and vector embeddings in a single atomic transaction.
+- **Boundary 5 (App Store Approval Guarantees)**: Native `@assistant-ui/react-native` client must include an in-app flag/report action on every AI response, a one-tap in-app account deletion flow that purges all user data immediately, and a dedicated Reviewer Sandbox login.
