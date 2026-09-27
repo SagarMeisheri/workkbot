@@ -1,14 +1,14 @@
-# Spec 05: Dynamic MCP OAuth Hub & Supabase Realtime Notification Center
+# Spec 05: Dynamic MCP OAuth Hub & In-App Notification Center via FCM (GCP Day 1)
 
 ## 1. Context & Motivation
-Hardcoded provider connectors (e.g. building custom Slack, Zoho, or Google tool wrappers) are brittle and unmaintainable. 
+Hardcoded provider connectors (e.g. custom Slack, Zoho, or Google tool wrappers) are brittle and unmaintainable. 
 Furthermore, routing alerts outside the application into third-party chat apps introduces context switching and security vulnerabilities.
-This spec establishes:
-1. **The Dynamic MCP OAuth Hub**: A user-facing connection center where employees connect to standard MCP providers via OAuth, storing encrypted tokens in **Supabase Vault**.
-2. **The In-App Notification Center**: A centralized notification drawer powered by **Supabase Realtime (`postgres_changes`)** and native mobile push alerts.
+This spec establishes on **Google Cloud (`asia-south1`)**:
+1. **The Dynamic MCP OAuth Hub**: A user-facing connection center where employees connect to standard MCP providers via OAuth, storing encrypted tokens in **Supabase Vault (Mumbai)**.
+2. **The In-App Notification Center**: A centralized notification drawer powered by **Supabase Realtime (`postgres_changes`)** and **Firebase Cloud Messaging (FCM)** on Google Cloud.
 
 ## 2. Objective & Non-Goals
-- **Objective**: Employees manage their own connected MCP tools via one-click OAuth; tool schemas are dynamically registered and cached; pending tool approvals and background task completions are surfaced through a unified in-app notification drawer synced via Supabase Realtime.
+- **Objective**: Employees manage their own connected MCP tools via one-click OAuth; tool schemas are dynamically registered and cached; pending tool approvals and background task completions are surfaced through a unified in-app notification drawer synced via Supabase Realtime and FCM push alerts.
 - **Non-Goals**: No hardcoded tool APIs. No third-party chat messaging bots (no WhatsApp/Telegram). The Workkbot app is the exclusive workspace.
 
 ---
@@ -20,6 +20,8 @@ This spec establishes:
   * `provider_catalog.py`: Defines registered MCP server endpoints and their OAuth 2.0 client configurations.
   * `oauth_flow.py`: Manages the authorization code exchange and encrypted persistence in Supabase Vault.
   * `schema_cache.py`: Caches dynamically fetched `tools/list` JSON schemas in Supabase Postgres (`discovered_tools`) with automatic invalidation.
+* `apps/backend/src/notifications/`
+  * `fcm_service.py`: Google Cloud Firebase Cloud Messaging client dispatching background push alerts to Expo mobile clients.
 * `supabase/migrations/20260927000005_notifications.sql`:
   * `public.user_notifications` table with Supabase Realtime replication enabled (`ALTER PUBLICATION supabase_realtime ADD TABLE public.user_notifications`).
   * RLS policies ensuring users only receive their own notifications.
@@ -31,15 +33,15 @@ This spec establishes:
 ## 4. Requirements & Implementation Details
 
 ### R05.1: The Dynamic MCP OAuth Hub with Supabase Vault
-- Workkbot maintains a catalog of verified MCP server endpoints (Google Drive/Gmail, GitHub, Notion, Slack, CRM).
+- Workkbot maintains a catalog of verified MCP server endpoints (Google Workspace, Zoho Workplace, GitHub, Notion).
 - **Connection Flow**:
   1. The user visits **Settings -> Connected Tools** in the web or mobile app.
   2. Clicks **[Connect Account]** on their desired service.
   3. Completes standard OAuth 2.0 authorization in their browser.
-  4. Workkbot exchanges the code, writes the encrypted secret to **Supabase Vault (`pgsodium`)**, and runs `tools/list`.
+  4. The Cloud Run callback exchanges the code, writes the encrypted secret to **Supabase Vault (`pgsodium`)**, and runs `tools/list`.
   5. Discovered tools are cached in `public.discovered_tools` and registered for subsequent chat turns.
 
-### R05.2: In-App Notification Center via Supabase Realtime
+### R05.2: In-App Notification Center via Supabase Realtime & FCM
 - `public.user_notifications` table:
   - `id`, `org_id`, `user_id`, `type`, `title`, `body`, `action_url`, `read_at`, `created_at`.
 - **Live Synchronization**:
@@ -58,17 +60,16 @@ This spec establishes:
       })
       .subscribe();
     ```
-  - When an approval is required or a background task completes, inserting a database row instantly updates the UI bell icon and badge counter.
-- **Native Mobile Push**:
-  - If the user's mobile app is backgrounded, the backend dispatches an Expo push notification (APNs/FCM). Tapping it routes directly to the in-app confirmation card.
+- **Native Mobile Push via Google Firebase Cloud Messaging (FCM)**:
+  - If the user's mobile app is backgrounded, `fcm_service.py` dispatches an FCM push alert. Tapping it routes directly to the in-app confirmation card via deep link (`workkbot://chat/:conversation_id?approval_id=:id`).
 
 ---
 
 ## 5. Validation Scorecard
 
-| Check ID | Verification Criteria | Test Method / Command | Pass/Fail |
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-05.1** | User completes OAuth flow; available tools populate dynamically in Supabase DB | Mock OAuth redirect test; assert `discovered_tools` rows | [ ] |
-| **VAL-05.2** | Disconnected account drops tokens from Supabase Vault and removes tools from session | Call disconnect endpoint; verify tools excluded from next model call | [ ] |
-| **VAL-05.3** | Inserting row in `user_notifications` triggers Supabase Realtime event in web client | Realtime subscriber integration test | [ ] |
-| **VAL-05.4** | Notification drawer displays pending items and marks them read upon clicking | UI test on `notification-drawer.tsx` | [ ] |
+| **VAL-05.1** | User completes OAuth flow; available tools populate dynamically in Supabase DB | `pytest apps/backend/tests/test_mcp_oauth_flow.py` | [ ] |
+| **VAL-05.2** | Disconnected account drops tokens from Supabase Vault and removes tools from session | `pytest apps/backend/tests/test_mcp_disconnect.py` | [ ] |
+| **VAL-05.3** | Inserting row in `user_notifications` triggers Supabase Realtime event in web client | `pnpm --filter web test:e2e tests/e2e/notifications.spec.ts` | [ ] |
+| **VAL-05.4** | Background mobile push alert dispatches cleanly via Firebase Cloud Messaging | `pytest apps/backend/tests/test_fcm_dispatch.py` | [ ] |

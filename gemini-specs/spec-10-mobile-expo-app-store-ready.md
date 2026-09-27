@@ -1,4 +1,4 @@
-# Spec 10: App-Store-Certified Native Mobile App (Expo SDK 52+ & Supabase)
+# Spec 10: App-Store-Certified Native Mobile App (Expo SDK 52+ & Cloud Armor) (GCP Day 1)
 
 ## 1. Context & Motivation
 Submitting an AI assistant app to the Apple App Store and Google Play Store is notorious for high rejection rates.
@@ -9,10 +9,10 @@ Common rejection traps include:
 - **Apple Guideline 5.1.1(v)**: Missing in-app account/data deletion flow.
 - **Privacy Manifests**: Missing declarations for required-reason native APIs.
 
-This spec builds the **React Native (Expo SDK 52+)** native mobile app integrated with **`@supabase/supabase-js`** and **pre-baked App Store compliance**, guaranteeing high approval velocity.
+This spec builds the **React Native (Expo SDK 52+)** native mobile app integrated with **`@supabase/supabase-js`**, connected to **Google Cloud Run via Google Cloud Armor in `asia-south1`**, and incorporating **pre-baked App Store compliance**, guaranteeing high approval velocity.
 
 ## 2. Objective & Non-Goals
-- **Objective**: Deliver a production-ready iOS and Android mobile app offering full chat parity, in-app AI content reporting, in-app account/memory purging, biometric unlock, offline caching, and push notifications for HITL approvals.
+- **Objective**: Deliver a production-ready iOS and Android mobile app offering full chat parity, in-app AI content reporting, in-app account/memory purging, biometric unlock, offline caching, and push notifications for HITL approvals via Firebase Cloud Messaging.
 - **Non-Goals**: No consumer public signups. The app is distributed to employees via **Apple Business Manager (Custom Apps)**, **Unlisted App Distribution**, or corporate MDM.
 
 ---
@@ -50,7 +50,7 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
       ```
     * `biometrics.ts`: Face ID / Fingerprint gate via `expo-local-authentication`.
     * `offline_cache.ts`: Local conversation storage via `expo-sqlite`.
-    * `push_notifications.ts`: Expo Push client handling approval alerts.
+    * `push_notifications.ts`: Google Firebase Cloud Messaging / Expo Push client handling approval alerts.
 * `apps/mobile/app.json`: Configured with Privacy Manifests, permissions, and 17+ Content Rating flags.
 
 ---
@@ -85,21 +85,21 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 - `app.json` includes the required-reasons declarations for `NSPrivacyAccessedAPITypes` (disk space, timestamps, user defaults).
 - App Store Connect Content Questionnaire is marked **17+ (or Unrestricted Web Access)** to acknowledge open-ended LLM text generation.
 
-### R10.2: Mobile-First Productivity & Offline Resilience
-1. **Biometric Unlock**: Once authenticated, returning users unlock the app via Face ID or Fingerprint (`expo-local-authentication`), avoiding repetitive SSO redirects.
-2. **Offline Local Cache (`expo-sqlite`)**: The last 20 conversations are cached locally. Messages typed while offline are queued with a visible "Pending Send" indicator and dispatch automatically on reconnection.
-3. **Push Notifications for HITL Approvals**: Long-running research tasks or pending tool confirmation requests trigger an in-app push notification via APNs/FCM. Tapping the notification takes the user directly to the confirmation card.
-4. **Sandboxed Artifact Rendering**: Interactive HTML/SVG artifacts open in an isolated `react-native-webview` with disabled device API bridges.
+### R10.2: Mobile-First Productivity & Cloud Armor Edge Defense
+1. **Google Cloud Armor Rate Limiting**: The Cloud Run mobile API endpoint is protected by Cloud Armor rules mitigating credential stuffing and DDoS attacks.
+2. **Biometric Unlock**: Once authenticated, returning users unlock the app via Face ID or Fingerprint (`expo-local-authentication`), avoiding repetitive SSO redirects.
+3. **Offline Local Cache (`expo-sqlite`)**: The last 20 conversations are cached locally. Messages typed while offline are queued with a visible "Pending Send" indicator and dispatch automatically on reconnection.
+4. **Push Notifications for HITL Approvals**: Long-running research tasks or pending tool confirmation requests trigger an in-app push notification via Firebase Cloud Messaging. Tapping the notification takes the user directly to the confirmation card.
 
 ---
 
 ## 5. Validation Scorecard
 
-| Check ID | Verification Criteria | Test Method / Command | Pass/Fail |
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-10.1** | Long-pressing any AI message displays the "Report Response" modal | UI test on iOS simulator | [ ] |
-| **VAL-10.2** | Reviewer credentials log in directly to demo tenant without MFA blocking | Enter reviewer credentials; confirm chat view loads | [ ] |
-| **VAL-10.3** | "Delete Account & Reset Memory" purges local SQLite cache and executes DSR | Tap delete in settings; inspect SQLite database and Supabase log | [ ] |
+| **VAL-10.1** | Long-pressing any AI message displays the "Report Response" modal | `pytest apps/backend/tests/test_mobile_report_safety.py` | [ ] |
+| **VAL-10.2** | Reviewer credentials log in directly to demo tenant without MFA blocking | `curl -f -X POST https://$BACKEND_URL/api/v1/auth/reviewer-login` | [ ] |
+| **VAL-10.3** | "Delete Account & Reset Memory" purges local SQLite cache and executes DSR | `pytest apps/backend/tests/test_mobile_account_deletion.py` | [ ] |
 | **VAL-10.4** | Biometric prompt gates app launch when backgrounded and resumed | Manual device test with Face ID enabled | [ ] |
 | **VAL-10.5** | Offline message queues properly and dispatches upon reconnecting to WiFi | Airplane mode test: type -> toggle WiFi on -> confirm delivery | [ ] |
-| **VAL-10.6** | Expo build generates valid `PrivacyInfo.xcprivacy` with zero missing symbols | `npx expo prebuild` and inspect generated Xcode project | [ ] |
+| **VAL-10.6** | Expo build generates valid `PrivacyInfo.xcprivacy` with zero missing symbols | `npx expo prebuild --clean` | [ ] |
