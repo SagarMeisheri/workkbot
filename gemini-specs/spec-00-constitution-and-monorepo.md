@@ -18,12 +18,12 @@ This spec establishes the project constitution, non-negotiable boundaries, and t
 ```
 workkbot/
 ├── apps/
-│   ├── web/                  # Next.js 15 (App Router) + @supabase/ssr + Tailwind v4 + shadcn/ui
-│   ├── mobile/               # React Native (Expo SDK 52+) + @supabase/supabase-js + FCM
+│   ├── web/                  # Next.js 15 (App Router) + @assistant-ui/react + @assistant-ui/react-google-adk + @supabase/ssr + Tailwind v4
+│   ├── mobile/               # React Native (Expo SDK 52+) + @assistant-ui/react-native + @supabase/supabase-js + FCM
 │   └── backend/              # Unified Python 3.12 FastAPI + Google ADK 2.0 + supabase-py
 ├── packages/
 │   ├── shared-types/         # Shared Zod / TypeScript schemas (Messages, Tools, Approvals)
-│   ├── ui/                   # Shared React UI components (web & admin)
+│   ├── ui/                   # Shared React UI & assistant-ui elements (web & admin)
 │   ├── eslint-config/        # Monorepo linting rules
 │   └── tsconfig/             # Base TypeScript configurations
 ├── skills/                   # Versioned markdown & script skills ("content as data")
@@ -50,8 +50,8 @@ workkbot/
 - **Google Cloud Services**: Google Cloud Run (multi-container), Google Cloud Build, Google Artifact Registry (`asia-south1-docker.pkg.dev`), Google Cloud Armor (WAF + geofencing), Google Cloud Secret Manager.
 - **Agentic Proxy & Data Plane**: Agentgateway `1.5.x` (Rust binary running as sidecar on loopback `127.0.0.1:8080`).
 - **Unified Backend Platform**: Supabase (PostgreSQL 16+, GoTrue Auth, Realtime, Vault, pgvector in Mumbai region).
-- **Frontend Web**: Next.js `15.2.x` / `16.x`, `@supabase/ssr` `^0.5.x`, React `19.0.x`, Tailwind CSS `^4.0.x`.
-- **Frontend Mobile**: Expo `SDK 52+`, React Native `0.76+` (New Architecture), `@supabase/supabase-js` `^2.48.x`.
+- **Frontend Web & Chat Architecture**: Next.js `15.2.x` / `16.x`, `@assistant-ui/react` `^0.15.x`, `@assistant-ui/react-google-adk`, `@assistant-ui/react-markdown`, `@assistant-ui/react-generative-ui`, `@supabase/ssr` `^0.5.x`, React `19.0.x`, Tailwind CSS `^4.0.x`, Lucide React.
+- **Frontend Mobile**: Expo `SDK 52+`, React Native `0.76+` (New Architecture), `@assistant-ui/react-native`, `@supabase/supabase-js` `^2.48.x`.
 - **Backend API & Agent Runtime**: Python `3.12.x`, FastAPI `^0.115.x`, `google-adk` (latest stable), `supabase-py` `^2.11.x`, Pydantic `^2.10.x`, SQLAlchemy `^2.0.x`, asyncpg `^0.30.x`.
 
 ---

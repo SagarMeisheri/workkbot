@@ -22,13 +22,13 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 ### Files to Create:
 * `apps/mobile/`
   * `app/`: Expo Router screens:
-    * `(tabs)/chat.tsx`: Main chat screen with token streaming and branch navigator.
+    * `(tabs)/chat.tsx`: Main chat screen powered by `@assistant-ui/react-native` and `useAdkRuntime`.
     * `(tabs)/settings.tsx`: Account info, biometric toggle, and DPDP privacy portal.
     * `artifact/[id].tsx`: Sandboxed `WebView` artifact viewer.
   * `components/`:
-    * `message-bubble.tsx`: Message bubble with **[Flag / Report AI Output]** action.
+    * `chat/mobile-action-bar.tsx`: Custom assistant-ui `ActionBarPrimitive` embedding Apple Guideline 1.2 **[Flag / Report AI Output]** action.
+    * `chat/mobile-approval-card.tsx`: Native mobile HITL confirmation card using `useAdkToolConfirmations()`.
     * `report-modal.tsx`: Content reporting dialog (inaccurate, offensive, hallucination).
-    * `in-chat-approval-card.tsx`: Tier 1 inline HITL confirmation card.
   * `services/`:
     * `supabase.ts`: Supabase client configured with `expo-secure-store` for session persistence:
       ```typescript
@@ -60,8 +60,19 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 ### R10.1: Mandatory App Store AI Safety Controls
 
 #### 1. In-App Flag/Report Response (Apple Guideline 1.2 & Google Play Policy)
-- Every assistant message bubble features a visible flag icon or long-press context menu action: **"Report AI Response"**.
-- Tapping it opens `report-modal.tsx` offering options:
+- Built directly into assistant-ui's native mobile `ActionBarPrimitive` on every message:
+  ```tsx
+  <ActionBarPrimitive.Root style={styles.actionBar}>
+    <ActionBarPrimitive.Copy />
+    <ActionBarPrimitive.Reload />
+    <ActionBarPrimitive.CustomAction 
+      icon="flag" 
+      onPress={handleReportContent}
+      accessibilityLabel="Report Objectionable AI Content"
+    />
+  </ActionBarPrimitive.Root>
+  ```
+- Tapping the flag button opens `report-modal.tsx` offering options:
   - *Inaccurate or Hallucination*
   - *Offensive / Inappropriate Content*
   - *Data / Privacy Concern*

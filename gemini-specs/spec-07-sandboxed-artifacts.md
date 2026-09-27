@@ -22,6 +22,8 @@ This spec introduces **hardware-isolated code execution** via E2B microVMs (with
 * `supabase/migrations/20260927000007_artifacts_metadata.sql`:
   * `public.artifacts_metadata` table (`id`, `org_id`, `user_id`, `storage_path`, `content_type`, `created_at`) with RLS.
 * `apps/web/src/app/artifacts/[id]/`: Isolated-origin rendering route deployed on a separate subdomain (`artifacts.workkbot.in`).
+* `apps/web/src/components/chat/artifact-canvas.tsx`: Dual-pane split canvas view utilizing `useAdkArtifacts()` and `AssistantFrameProvider`.
+* `apps/web/src/components/assistant-ui/elements/code-diff.tsx`: Versioned code diff viewer element.
 * `apps/mobile/src/components/artifact-viewer.tsx`: In-app sandboxed `WebView` component.
 
 ---
@@ -65,6 +67,13 @@ This spec introduces **hardware-isolated code execution** via E2B microVMs (with
   - Whitelists filename characters: `re.sub(r'[^a-zA-Z0-9_\-\.]', '', filename)`.
   - Enforces safe extension allowlist (`.html`, `.svg`, `.json`, `.csv`, `.png`, `.pdf`).
   - Blocks any attempt to write outside the scoped GCS prefix or into the host filesystem.
+
+### R07.5: Assistant-UI Dual-Pane Canvas & Versioned Diffs
+- When the assistant produces code or an interactive visual artifact:
+  - The client leverages `useAdkArtifacts()` from `@assistant-ui/react-google-adk` to track session artifact metadata (filename, version, URL).
+  - The layout transitions into a split Canvas view (`artifact-canvas.tsx`), which can also be toggled manually at any time via the canonical header action icon `↗` in `ThreadHeader`.
+  - For interactive HTML/JS apps or data dashboards, `AssistantFrameProvider` embeds the isolated subdomain iframe with bridge-level postMessage communication.
+  - For generated code, scripts, or SQL queries, assistant-ui's `CodeDiff` element renders side-by-side or inline syntax-highlighted diffs across revisions.
 
 ---
 

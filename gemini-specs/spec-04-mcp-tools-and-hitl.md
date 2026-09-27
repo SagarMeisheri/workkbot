@@ -31,7 +31,8 @@ To prevent token theft, routing bottlenecks, and emerging AI attack vectors (too
   * `public.tool_connections` table referencing Supabase Vault secret IDs.
   * `public.discovered_tools` cache table with RLS.
   * `public.tool_invocations` audit log table with RLS.
-* `apps/web/src/components/chat/hitl-confirmation-card.tsx`: Interactive inline approval card.
+* `apps/web/src/components/chat/hitl-confirmation-card.tsx`: Interactive inline approval card powered by assistant-ui's `useAdkToolConfirmations()` and `useAdkConfirmTool()`.
+* `apps/web/src/components/assistant-ui/elements/tool-group.aui.tsx`: Collapsible tool execution trace showing tool name, arguments, execution duration, and sanitized output.
 
 ---
 
@@ -49,11 +50,11 @@ To prevent token theft, routing bottlenecks, and emerging AI attack vectors (too
 - The backend on Cloud Run retrieves decrypted tokens only at execution time via `vault.decrypted_secrets` under the user's authenticated session context, injecting them into Agentgateway upstream session headers.
 
 ### R04.2: Federated Tool Discovery via Agentgateway 1.5.x
-- Workkbot configures the target MCP server endpoints inside `agentgateway.yaml` (e.g. Google Workspace, Zoho Workplace, GitHub, Notion).
-- Users click **"Connect Account"**, complete standard OAuth 2.0 authorization, and Workkbot registers the connection.
+- While Google Workspace and Zoho Workplace serve as initial Day-1 starter connectors, Agentgateway dynamically federates an **open-ended catalog of MCP server endpoints** configured in `agentgateway.yaml` or added dynamically via the Connectors Hub (Microsoft 365, Notion, Slack, Canva, Figma, Atlassian Jira/Confluence, HubSpot, Asana, Linear, Tally, Zoho Books).
+- Users browse **Connectors -> Discover** in the assistant-ui composer, click **[Connect]** on their desired service, complete OAuth 2.0 authorization, and register the connection.
 - Upon successful authentication, the ADK `McpToolset` invokes `tools/list` on `http://127.0.0.1:8080/mcp`:
   - Agentgateway fans out `tools/list` across all connected MCP backends concurrently.
-  - Applies CEL authorization filtering based on the caller's JWT role claims.
+  - Applies CEL authorization filtering based on the caller's JWT role claims and tenant scope.
   - Returns a unified, deduplicated tool schema catalog to the ADK `LlmAgent`.
 
 ### R04.3: Automated Tool Safety Classification
@@ -62,21 +63,18 @@ To prevent token theft, routing bottlenecks, and emerging AI attack vectors (too
   - Tags matching tools as `critical: true`.
   - Tools with purely retrieval verbs (e.g. `get`, `list`, `search`, `fetch`, `read`, `query`) are tagged `critical: false`.
 
-### R04.4: 100% User-Centric In-Chat HITL Confirmation
+### R04.4: 100% User-Centric In-Chat HITL Confirmation via Assistant-UI
 - When the LLM decides to call a tool tagged `critical: true`:
   1. The tool pauses execution via ADK's `ToolContext.request_confirmation()`.
-  2. The Cloud Run backend emits an SSE event down the user's active chat stream:
-     ```json
-     {
-       "type": "tool_confirmation_required",
-       "tool_call_id": "call_abc123",
-       "tool_name": "send_email",
-       "hint": "Send email to rahul@company.in with subject 'Proposal'",
-       "arguments": {"to": "rahul@company.in", "subject": "Proposal", "body": "..."}
-     }
-     ```
-  3. The chat UI renders an inline card with **[Approve & Run]** and **[Cancel]** buttons.
-  4. The user clicks **[Approve & Run]**, triggering the tool to execute immediately.
+  2. The Cloud Run backend emits the confirmation challenge over SSE down the active connection.
+  3. The `@assistant-ui/react-google-adk` client intercepts the challenge and surfaces it through the `useAdkToolConfirmations()` hook.
+  4. The chat UI renders the assistant-ui `ApprovalCard` containing:
+     - Clear title: "Authorization Required for Mutating Action".
+     - Tool name and parameter breakdown.
+     - Confirmation hint.
+     - **[Confirm & Execute]** and **[Decline]** interactive buttons.
+  5. The user clicks **[Confirm & Execute]**, which triggers `confirmTool(toolCallId, true)`, resuming the ADK runner and executing the tool without manual refresh or admin bottlenecks.
+  6. Read-only tools render automatically via `ToolGroup` and `ToolFallback` with collapsible execution details.
 
 ### R04.5: Cloud Logging & Supabase Audit Trail
 - Every tool execution emits:

@@ -7,12 +7,12 @@ Monorepo (pnpm workspaces + Turborepo), structured across four unified planes: c
 ```text
 workkbot/
 ├── apps/
-│   ├── web/                  # Next.js 15 (App Router) + Supabase SSR + Tailwind v4 + shadcn/ui -> Cloud Run
-│   ├── mobile/               # React Native (Expo SDK 52+) + Supabase Client + FCM
+│   ├── web/                  # Next.js 15 (App Router) + @assistant-ui/react + @assistant-ui/react-google-adk + Supabase SSR + Tailwind v4 -> Cloud Run
+│   ├── mobile/               # React Native (Expo SDK 52+) + @assistant-ui/react-native + Supabase Client + FCM
 │   └── backend/              # Unified Python 3.12 FastAPI + Google ADK 2.0 + Supabase-py -> Cloud Run
 ├── packages/
 │   ├── shared-types/         # Zod & TypeScript shared schemas (Message, Tool, Approval)
-│   ├── ui/                   # Shared React UI component library (web & admin)
+│   ├── ui/                   # Shared React UI & assistant-ui elements (web & admin)
 │   ├── eslint-config/        # Monorepo linting standards
 │   └── tsconfig/             # Base TypeScript configurations
 ├── skills/                   # Content-as-data skills (versioned markdown + scripts)
@@ -58,8 +58,15 @@ workkbot/
   - **Realtime**: Supabase Realtime (`postgres_changes` & Broadcast) driving live In-App Notification Center sync and approval state.
 - **Agentic Harness**: **Google ADK 2.0** (`google-adk`, pinned explicit version) — Runner, `LlmAgent`, `McpToolset`, `DatabaseSessionService`, and `BaseMemoryService`.
 - **Backend API & Streaming**: **FastAPI** `^0.115.x` + `supabase-py` `^2.11.x` + `asyncpg` `^0.30.x`; async SSE streaming over HTTP/2; Pydantic `^2.10.x`.
-- **Web Frontend**: **Next.js** `15.2.x` / `16.x` (App Router), `@supabase/ssr` `^0.5.x`, **React** `19.0.x`, **Tailwind CSS** `^4.0.x`, **shadcn/ui**, **TanStack Query** `^5.66.x`.
-- **Mobile Client**: **React Native 0.76+** via **Expo SDK 52+** (New Architecture enabled), `@supabase/supabase-js` `^2.48.x`, `expo-router`, `expo-secure-store`, `expo-local-authentication`, `react-native-webview`.
+- **Web Frontend & Chat Architecture**: **Next.js** `15.2.x` / `16.x` (App Router), **assistant-ui** (`@assistant-ui/react` `^0.15.x`, `@assistant-ui/react-google-adk`, `@assistant-ui/react-markdown`, `@assistant-ui/react-generative-ui`), `@supabase/ssr` `^0.5.x`, **React** `19.0.x`, **Tailwind CSS** `^4.0.x`, **shadcn/ui**, **TanStack Query** `^5.66.x`, **Lucide React**.
+  - **Canonical UI Catalog**:
+    - **Sidebar**: `ThreadListSidebar`, `ThreadListPrimitive.New` (`+ New thread`), `ThreadListItemPrimitive`, and bottom user auth footer (`-> Sign in` / profile).
+    - **Header**: `ThreadHeader` with title, options (`...`), and Canvas expand toggle (`↗`).
+    - **Composer**: Floating container embedding `ComposerPrimitive.Input`, `+` tool connector popover (`tool-popover.tsx`), `ModelSelector` (Vertex AI Flash/Pro tier), speech-to-text dictation microphone, and `ComposerPrimitive.Send` (`↑`).
+    - **Suggestions**: Staggered prompt chips via `SuggestionPrimitive`.
+    - **Stream & HITL**: `Reasoning`, `Sources`, `BranchPickerPrimitive`, `ApprovalCard`, and `ToolGroup`.
+- **Mobile Client**: **React Native 0.76+** via **Expo SDK 52+** (New Architecture enabled), **assistant-ui** (`@assistant-ui/react-native`), `@supabase/supabase-js` `^2.48.x`, `expo-router`, `expo-secure-store`, `expo-local-authentication`, `react-native-webview`.
+- **Admin & Observability Tools**: `@assistant-ui/react-o11y` (visual trace waterfalls in web console) and `@assistant-ui/react-ink` (terminal CLI for DevOps administration).
 - **Code Execution Sandbox**: **E2B** Firecracker microVMs (`e2b-code-interpreter`) with zero container host filesystem access and strict path traversal sanitization.
 - **Testing & Quality**: Pytest (`backend`), Playwright / Vitest (`web`), Ruff / Black (Python), ESLint / Prettier (TypeScript).
 
@@ -70,6 +77,6 @@ workkbot/
 3. **Hardware Encryption in Supabase Vault**: User MCP OAuth tokens are stored in `vault.decrypted_secrets` or encrypted with `pgsodium`. Plaintext token columns are a strict constitutional violation.
 4. **Agentgateway as Sole MCP & LLM Data Plane**: The FastAPI backend does not manage raw SSE connections or multi-server fan-out to external MCP endpoints. All MCP server sessions and LLM calls route through Agentgateway, enforcing anti-poisoning, CEL RBAC, and parameter sanitization.
 5. **SSRF & Metadata Server Egress Immunity**: Cloud Run Direct VPC Egress firewall rules unconditionally drop traffic to `169.254.169.254` and `metadata.google.internal`. Dynamic URL inputs are verified against DNS rebinding, IPv4-mapped IPv6 (CVE-2026-31943), and private CIDR ranges prior to connection.
-6. **In-App First Alerting via Supabase Realtime & FCM**: All approval requests, tool execution statuses, and notifications surface inside the Workkbot web and mobile apps via Supabase Realtime channels and Firebase Cloud Messaging (FCM).
+6. **In-App First Alerting & Assistant-UI Primitives**: All approval requests, tool execution statuses, and notifications surface inside the Workkbot web and mobile apps via Supabase Realtime channels, Firebase Cloud Messaging (FCM), and native assistant-ui primitives (`ApprovalCard` powered by `useAdkToolConfirmations()`, `BranchPickerPrimitive`, and mobile `ActionBarPrimitive`). No external chat bots (WhatsApp/Slack) are permitted for v1.
 7. **DPDP Statutory Compliance & Right to Erasure**: Statutory consent logged in Supabase. Real-time Indian PII masking (Aadhaar, PAN, UPI) in `before_model` callback via Google Cloud DLP and regex. DSR erasure cascades through Supabase Auth, database tables, and vector embeddings in a single atomic transaction.
 8. **Isolated-Origin & Sanitized Artifact Execution**: Code execution executes exclusively in isolated E2B Firecracker microVMs. Artifact filenames are strictly sanitized against path traversal (`../`) prior to GCS persistence, and render exclusively on a separate subdomain iframe with a strict CSP.

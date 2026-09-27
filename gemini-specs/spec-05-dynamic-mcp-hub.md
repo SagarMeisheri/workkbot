@@ -29,20 +29,28 @@ This spec establishes on **Google Cloud (`asia-south1`)**:
   * `public.user_notifications` table with Supabase Realtime replication enabled (`ALTER PUBLICATION supabase_realtime ADD TABLE public.user_notifications`).
   * RLS policies ensuring users only receive their own notifications.
 * `apps/web/src/app/settings/connections/`: User MCP Connection Hub UI (OAuth and OpenAPI importers).
+* `apps/web/src/components/chat/generative-ui-registry.tsx`: SMB Generative UI registry using `@assistant-ui/react-generative-ui` for Tally and Zoho Books responses.
+* `apps/web/src/components/assistant-ui/elements/mcp-config.tsx`: Assistant-ui MCP server status and management element.
 * `apps/web/src/components/notifications/notification-drawer.tsx`: Slide-out notification drawer listening to Supabase Realtime channel.
 
 ---
 
 ## 4. Requirements & Implementation Details
 
-### R05.1: The Dynamic MCP OAuth Hub with Supabase Vault
-- Workkbot maintains a catalog of verified MCP server endpoints (Google Workspace, Zoho Workplace, GitHub, Notion).
+### R05.1: The Extensible Connectors Hub with Supabase Vault
+- Accessible directly from assistant-ui's composer `+ -> Connectors >` or the sidebar `Settings -> Connectors`:
+  - **Tabs**:
+    - `Yours`: Displays active employee connections with live health status, authorized scopes, and disconnect actions.
+    - `Discover`: Directory of 3,000+ ecosystem and verified MCP connectors with author attribution (`by Google`, `by Notion`, `by Slack`, `by Atlassian`, `by Canva`, `by HubSpot`, `by Asana`, `by Linear`, `by Anthropic`).
+  - **Header Controls**:
+    - Search input (`🔍 Search connectors`) with debounced querying.
+    - Filter pills by capability: Top connectors, Productivity, CRM, Finance, Engineering, Design.
+    - **`+ Add ▾` Button**: Modal action allowing admins and users to register a custom MCP server (via SSE/stdio container endpoint) or import an OpenAPI 3.0 specification.
 - **Connection Flow**:
-  1. The user visits **Settings -> Connected Tools** in the web or mobile app.
-  2. Clicks **[Connect Account]** on their desired service.
-  3. Completes standard OAuth 2.0 authorization in their browser.
-  4. The Cloud Run callback exchanges the code, writes the encrypted secret to **Supabase Vault (`pgsodium`)**, and notifies Agentgateway.
-  5. Discovered tools are cached in `public.discovered_tools` and registered for subsequent chat turns.
+  1. The user clicks **[+]** on their chosen connector card in `Discover`.
+  2. Completes standard OAuth 2.0 authorization code flow in their browser.
+  3. The Cloud Run callback exchanges the code, writes the encrypted credentials to **Supabase Vault (`pgsodium`)** as `mcp_token_${user_id}_${provider_id}`, and updates `public.mcp_connections`.
+  4. Discovered tools from the new MCP server are fetched via `tools/list`, cached in `public.discovered_tools`, and registered in the active ADK session through Agentgateway.
 
 ### R05.2: OpenAPI-to-MCP Virtualization via Agentgateway
 - Admins can connect internal Indian business REST APIs (e.g. Zoho Books, Tally ERP, internal logistics) by importing their OpenAPI 3.0/Swagger JSON.
@@ -63,6 +71,11 @@ This spec establishes on **Google Cloud (`asia-south1`)**:
   - Web and mobile apps subscribe to Supabase Realtime channel `user-notifications`.
 - **Native Mobile Push via Google Firebase Cloud Messaging (FCM)**:
   - If the user's mobile app is backgrounded, `fcm_service.py` dispatches an FCM push alert. Tapping it routes directly to the in-app confirmation card via deep link (`workkbot://chat/:conversation_id?approval_id=:id`).
+
+### R05.5: Generative UI Rendering for Virtualized SMB APIs
+- Virtualized SMB tools (e.g. Tally GST calculator, Zoho Books invoice lookup) return structured UI payloads rendered by `@assistant-ui/react-generative-ui`.
+- The assistant can call the `present({ display })` primitive or emit typed generative objects registered in `smbGenerativeUiLibrary`.
+- Financial metrics, tax summaries, and customer ledgers render as interactive, beautifully formatted cards with actions (e.g., "Download PDF", "Re-compute ITC") rather than raw JSON or plain markdown tables.
 
 ---
 
