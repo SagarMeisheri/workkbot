@@ -1,12 +1,12 @@
 # Spec 09: Centralized Admin Console & Immutable BigQuery Audit Engine (GCP Day 1)
 
 ## 1. Context & Motivation
-For an internal enterprise tool, governance, cost control, and auditability are non-negotiable. 
-IT leadership and business owners need a single pane of glass to configure allowed MCP providers, monitor AI token expenditures in INR, manage user roles, toggle skills, and review immutable compliance audit trails.
-Because tool execution approvals are handled 100% user-centrically by employees in their own chat sessions, the Admin Console is freed from being an operational approval bottleneck, focusing purely on governance, cost tracking, and statutory compliance under India's **DPDP Act 2023** and **CERT-In**.
+For an internal enterprise tool, governance, cost control, security oversight, and auditability are non-negotiable. 
+IT leadership and business owners need a single pane of glass to configure allowed MCP providers, monitor AI token expenditures in INR, manage user roles, toggle skills, monitor Agentgateway security events (tool poisoning detections, SSRF probe drops), and review immutable compliance audit trails.
+Because tool execution approvals are handled 100% user-centrically by employees in their own chat sessions, the Admin Console is freed from being an operational approval bottleneck, focusing purely on governance, cost tracking, security monitoring, and statutory compliance under India's **DPDP Act 2023** and **CERT-In**.
 
 ## 2. Objective & Non-Goals
-- **Objective**: Authorized admins (`tool-admin`, `org-admin`) have a secure dashboard to manage users, allowlist MCP providers, toggle skills, monitor token budgets in INR, and export immutable audit trails from Supabase PostgreSQL and **Google BigQuery in `asia-south1`**.
+- **Objective**: Authorized admins (`tool-admin`, `org-admin`) have a secure dashboard to manage users, allowlist MCP providers, toggle skills, monitor token budgets in INR, review Agentgateway OpenTelemetry security logs, and export immutable audit trails from Supabase PostgreSQL and **Google BigQuery in `asia-south1`**.
 - **Non-Goals**: No admin approval queue for routine user tool calls. Admins set policies and provider allowlists, not micro-approve individual emails or tickets.
 
 ---
@@ -15,11 +15,11 @@ Because tool execution approvals are handled 100% user-centrically by employees 
 
 ### Files to Create:
 * `apps/backend/src/admin/`
-  * `router.py`: Endpoints for `/api/v1/admin/users`, `/providers`, `/skills`, `/metrics`, and `/audit-logs`.
+  * `router.py`: Endpoints for `/api/v1/admin/users`, `/providers`, `/skills`, `/metrics`, `/security-events`, and `/audit-logs`.
   * `metrics_service.py`: Queries Supabase `agent_runs` to aggregate token consumption and calculate monthly costs in INR.
   * `audit_export.py`: Generates signed CSV/JSON audit exports and queries Google BigQuery audit archives.
 * `infra/gcp/terraform/logging_sinks.tf`:
-  * Google Cloud Logging export sink streaming `workkbot-audit` logs into a dedicated BigQuery dataset in Mumbai (`asia-south1`).
+  * Google Cloud Logging export sink streaming `workkbot-audit` and `agentgateway-security` logs into a dedicated BigQuery dataset in Mumbai (`asia-south1`).
 * `supabase/migrations/20260927000009_admin_views.sql`:
   * Database views and helper functions for monthly cost aggregations.
   * Strict RLS policies restricting read access to users with `app_metadata.role = 'org-admin'`.
@@ -27,6 +27,7 @@ Because tool execution approvals are handled 100% user-centrically by employees 
   * `page.tsx`: Executive dashboard with usage metrics, active users, and cost summaries.
   * `providers/`: Org-wide MCP provider allowlisting (enable/disable providers for employees).
   * `skills/`: Skill catalog with toggle switches and usage metrics.
+  * `security/`: Live Agentgateway security log viewer (blocked prompt injections, parameter tampering, SSRF attempts).
   * `audit/`: Searchable log table with filters for date, user, tool, and execution status.
 
 ---
@@ -47,11 +48,11 @@ Because tool execution approvals are handled 100% user-centrically by employees 
     );
   ```
 
-### R09.2: Org-Wide MCP Provider Allow-Listing
+### R09.2: Org-Wide MCP Provider Allow-Listing & CEL Policy Sync
 - Admins configure which external MCP providers employees are permitted to connect via OAuth:
   - Updates `public.org_provider_policies` table.
+  - Updates dynamic CEL rules in Agentgateway to deny requests to unapproved upstream tools.
   - Employees only see allowlisted providers in their **Settings -> Connected Tools** hub.
-  - Prevents data leakage to unapproved external services.
 
 ### R09.3: Cost & Rupee Budget Dashboard
 - Queries Supabase `agent_runs` table:
@@ -61,10 +62,15 @@ Because tool execution approvals are handled 100% user-centrically by employees 
 - **Budget Threshold Alerts**: Realtime alerts when monthly spend reaches 80% and 100% of the configured budget cap.
 
 ### R09.4: Immutable Google BigQuery Audit Sink (DPDP Statutory Retention)
-- In addition to Supabase PostgreSQL, all tool execution and HITL decision logs are streamed to **Google Cloud Logging**.
+- All tool execution and HITL decision logs are streamed to **Google Cloud Logging**.
 - A Cloud Logging export sink routes logs into **Google BigQuery** (`$PROJECT:audit_dataset.tool_invocations`) in `asia-south1`:
   - Enforces 7-year immutable retention lock.
   - Provides tamper-evident compliance logs satisfying DPDP Act 2023 and CERT-In directions.
+
+### R09.5: Agentgateway Security Log Ingestion & Incident Alerting
+- Agentgateway exports OpenTelemetry (OTel) security events directly to Cloud Logging:
+  - Log events tagged `agentgateway.security.violation` (e.g. tool poisoning payload detected, disallowed SSRF host blocked, CVE-2026-29791 parameter injection dropped).
+  - Admin Console surfaces these in a dedicated **Security Center** tab with instant notifications to `org-admin`.
 
 ---
 
@@ -76,3 +82,4 @@ Because tool execution approvals are handled 100% user-centrically by employees 
 | **VAL-09.2** | Disabling an MCP provider in the Admin Console removes it from employee connection options | `pytest apps/backend/tests/test_provider_allowlist.py` | [ ] |
 | **VAL-09.3** | Cost aggregation correctly calculates INR totals based on model pricing tiers | `pytest apps/backend/tests/test_inr_metrics_aggregation.py` | [ ] |
 | **VAL-09.4** | Cloud Logging sink delivers immutable audit records to BigQuery in `asia-south1` | `bq query --use_legacy_sql=false "SELECT count(*) FROM \`$PROJECT.audit_dataset.tool_invocations\`"` | [ ] |
+| **VAL-09.5** | Agentgateway security events (SSRF blocks, tool poisoning) stream into BigQuery & Admin UI | `pytest apps/backend/tests/test_security_audit_ingestion.py` | [ ] |

@@ -2,11 +2,11 @@
 
 ## 1. Context & Motivation
 Generative Artifacts (data analysis charts, interactive dashboards, generated documents, and scripts) differentiate an enterprise assistant from a simple chatbot. 
-However, running untrusted LLM-generated code and rendering dynamic HTML creates massive security risks.
-This spec introduces **hardware-isolated code execution** via E2B microVMs (with a local Docker fallback for cost-sensitive Indian SMBs), **persistence via Google Cloud Storage (GCS in `asia-south1`)**, and **isolated-origin rendering** with strict Content Security Policies.
+However, running untrusted LLM-generated code and rendering dynamic HTML creates massive security risks. Furthermore, trusting filenames returned by sandboxes creates severe **Arbitrary File Write / RCE vulnerabilities (as identified in LibreChat CVE-2026-34371)** where attackers used `../../` path traversal to overwrite host application files.
+This spec introduces **hardware-isolated code execution** via E2B microVMs (with a local Docker fallback for cost-sensitive Indian SMBs), **strict filename sanitization**, **persistence via Google Cloud Storage (GCS in `asia-south1`)**, and **isolated-origin rendering** with strict Content Security Policies.
 
 ## 2. Objective & Non-Goals
-- **Objective**: The assistant can write and execute code in short-lived sandboxes, commit generated outputs through ADK’s Artifact Service into **Google Cloud Storage (GCS)**, and render interactive outputs inside a secure, origin-isolated iframe or mobile WebView using V4 Signed URLs.
+- **Objective**: The assistant can write and execute code in short-lived sandboxes, commit generated outputs through ADK’s Artifact Service into **Google Cloud Storage (GCS)** with strict path traversal sanitization, and render interactive outputs inside a secure, origin-isolated iframe or mobile WebView using V4 Signed URLs.
 - **Non-Goals**: No code execution in the primary application container. Sandboxes never have access to production databases or app cookies.
 
 ---
@@ -16,6 +16,7 @@ This spec introduces **hardware-isolated code execution** via E2B microVMs (with
 ### Files to Create:
 * `apps/backend/src/artifacts/`
   * `sandbox_manager.py`: Pluggable execution manager supporting E2B Firecracker microVMs or local Docker/gVisor runner.
+  * `path_sanitizer.py`: Strict filename and path validator blocking directory traversal sequences (`../`, `/`) mitigating CVE-2026-34371.
   * `tool_execute_code.py`: ADK `FunctionTool` invoking the sandbox environment.
   * `gcs_artifact_service.py`: Backs Google ADK's Artifact Service with Google Cloud Storage (`google-cloud-storage`).
 * `supabase/migrations/20260927000007_artifacts_metadata.sql`:
@@ -58,6 +59,13 @@ This spec introduces **hardware-isolated code execution** via E2B microVMs (with
 - **Mobile Isolation**:
   - Expo uses `react-native-webview` with `originWhitelist={['https://artifacts.workkbot.in']}` and `javaScriptEnabled={true}`, isolating execution from native device APIs.
 
+### R07.4: Strict Filename Sanitization & Anti-Traversal (CVE-2026-34371)
+- `path_sanitizer.py` validates all output metadata returned from the sandbox before saving to GCS or disk:
+  - Strips any path separators (`/`, `\`) and traversal tokens (`..`).
+  - Whitelists filename characters: `re.sub(r'[^a-zA-Z0-9_\-\.]', '', filename)`.
+  - Enforces safe extension allowlist (`.html`, `.svg`, `.json`, `.csv`, `.png`, `.pdf`).
+  - Blocks any attempt to write outside the scoped GCS prefix or into the host filesystem.
+
 ---
 
 ## 5. Validation Scorecard
@@ -69,3 +77,4 @@ This spec introduces **hardware-isolated code execution** via E2B microVMs (with
 | **VAL-07.3** | Generated artifact uploaded to GCS and returns valid V4 signed URL | `pytest apps/backend/tests/test_gcs_signed_urls.py` | [ ] |
 | **VAL-07.4** | Expired GCS V4 signed URL returns HTTP 403 Forbidden | `pytest apps/backend/tests/test_signed_url_expiry.py` | [ ] |
 | **VAL-07.5** | Artifact iframe cannot access parent window's `localStorage` or auth cookies | `pnpm --filter web test:e2e tests/e2e/artifact-sandbox.spec.ts` | [ ] |
+| **VAL-07.6** | Filenames with path traversal (`../../app/server.js`) are safely sanitized (CVE-2026-34371) | `pytest apps/backend/tests/test_path_sanitizer.py` | [ ] |

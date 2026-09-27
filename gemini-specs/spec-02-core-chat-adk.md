@@ -2,10 +2,10 @@
 
 ## 1. Context & Motivation
 With identity and statutory consent verified via Supabase Auth, this spec establishes the core conversational chat engine. 
-The **Google ADK 2.0 Runner runs in-process inside the FastAPI backend deployed to Google Cloud Run in `asia-south1` (Mumbai)**, persisting conversation state into **Supabase PostgreSQL (Mumbai)** via ADK's `DatabaseSessionService`. The assistant starts with a single, unadorned `LlmAgent` powered directly by **Google Vertex AI (`gemini-2.0-flash`)**, saving tokens and latency by avoiding premature multi-agent complexity.
+The **Google ADK 2.0 Runner runs in-process inside the FastAPI backend deployed to Google Cloud Run in `asia-south1` (Mumbai)**, persisting conversation state into **Supabase PostgreSQL (Mumbai)** via ADK's `DatabaseSessionService`. The assistant starts with a single, unadorned `LlmAgent` routed through the local **Agentgateway 1.5.x LLM Proxy (`127.0.0.1:8080/v1`)** to **Google Vertex AI (`gemini-2.0-flash`)**. This provides sub-second time-to-first-token (TTFT), automatic upstream circuit breaking, token counting telemetry, and transparent secondary model failover during peak traffic.
 
 ## 2. Objective & Non-Goals
-- **Objective**: Authenticated users can stream responses token-by-token over Server-Sent Events (SSE) via Cloud Run over HTTP/2, edit previous messages to create conversation branches, and persist sessions durably in Supabase PostgreSQL via ADK’s `DatabaseSessionService` with Row-Level Security (RLS).
+- **Objective**: Authenticated users stream responses token-by-token over Server-Sent Events (SSE) via Cloud Run over HTTP/2, edit previous messages to create conversation branches, and persist sessions durably in Supabase PostgreSQL via ADK’s `DatabaseSessionService` with Row-Level Security (RLS). LLM calls pass through the hardened Agentgateway proxy for resilience and telemetry.
 - **Non-Goals**: No external MCP tools, memory injection, or code execution in this spec. Those attach to the ADK Runner in later specs.
 
 ---
@@ -14,9 +14,9 @@ The **Google ADK 2.0 Runner runs in-process inside the FastAPI backend deployed 
 
 ### Files to Create:
 * `apps/backend/src/agent/`
-  * `agent.py`: Instantiates the primary Google ADK 2.0 `LlmAgent(name="workkbot_core")` configured with Vertex AI Gemini 2.0 Flash.
+  * `agent.py`: Instantiates the primary Google ADK 2.0 `LlmAgent(name="workkbot_core")` configured with OpenAI/Vertex-compatible client pointing to Agentgateway (`http://127.0.0.1:8080/v1`).
   * `runner.py`: Sets up ADK `Runner` configured with `DatabaseSessionService` pointed at Supabase PostgreSQL (via SQLAlchemy/asyncpg).
-  * `model_tier.py`: Multi-provider model router defaulting to cost-effective models (Vertex AI `gemini-2.0-flash` or `gemini-2.0-pro`).
+  * `model_tier.py`: Manages model selection headers passed to Agentgateway (defaulting to Vertex AI `gemini-2.0-flash` with circuit breaker fallback to `gemini-2.0-pro`).
 * `apps/backend/src/chat/`
   * `router.py`: FastAPI endpoints `/api/v1/chat/stream`, `/api/v1/conversations`, `/api/v1/conversations/{id}/branch`.
   * `sse.py`: Async generator transforming ADK event streams into compliant SSE chunks over Cloud Run HTTP/2.
@@ -29,7 +29,7 @@ The **Google ADK 2.0 Runner runs in-process inside the FastAPI backend deployed 
 
 ## 4. Requirements & Implementation Details
 
-### R02.1: In-Process ADK 2.0 Runner on Google Cloud Run
+### R02.1: In-Process ADK 2.0 Runner & Agentgateway LLM Proxy
 - The ADK Runner runs as an in-process singleton within FastAPI on Cloud Run, eliminating cross-service HTTP proxy latency and connection serialization overhead.
 - Sessions and events persist into Supabase PostgreSQL using ADK's `DatabaseSessionService` via SQLAlchemy and asyncpg with connection pooling (`pool_size=20`, `max_overflow=10`).
 - RLS Policies on `conversations`:
@@ -37,7 +37,10 @@ The **Google ADK 2.0 Runner runs in-process inside the FastAPI backend deployed 
   CREATE POLICY "Users can only access conversations in their org" ON public.conversations
     FOR ALL USING (org_id = (auth.jwt() ->> 'org_id')::uuid AND user_id = auth.uid());
   ```
-- Model Provider: Pinned to **Google Vertex AI `gemini-2.0-flash`** by default for sub-second time-to-first-token (TTFT) and low token pricing.
+- **Resilient LLM Routing via Agentgateway**:
+  - ADK client connects to loopback `http://127.0.0.1:8080/v1`.
+  - **Primary Route**: Google Vertex AI `gemini-2.0-flash` in `asia-south1`.
+  - **Automated Fallback**: Agentgateway catches 429 (rate-limit) or 503 errors and transparently retries against `gemini-2.0-pro` without dropping the user's streaming connection.
 
 ### R02.2: Cloud Run Native HTTP/2 SSE Streaming
 - Endpoint: `POST /api/v1/chat/stream`
@@ -63,3 +66,4 @@ The **Google ADK 2.0 Runner runs in-process inside the FastAPI backend deployed 
 | **VAL-02.3** | Killing and restarting backend container preserves conversation history in Supabase | `pytest apps/backend/tests/test_session_durability.py` | [ ] |
 | **VAL-02.4** | Editing a message creates a new branch without overwriting prior history in Postgres | `pytest apps/backend/tests/test_event_branching.py` | [ ] |
 | **VAL-02.5** | User from Org A cannot read conversations belonging to Org B | `pytest apps/backend/tests/test_conversation_tenant_isolation.py` | [ ] |
+| **VAL-02.6** | Agentgateway successfully fails over from primary to secondary LLM on simulated 429 | `pytest apps/backend/tests/test_llm_gateway_failover.py` | [ ] |

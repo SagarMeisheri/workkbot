@@ -6,10 +6,11 @@ At the same time, naive multi-agent architectures introduce latency, token waste
 This spec introduces on **Google Cloud (`asia-south1`)**:
 1. **Content-as-Data Skills**: Versioned Markdown files loaded on-demand.
 2. **Progressive Workflow Graduation Ladder**: Starting with prompt injection before graduating to complex sub-agents.
-3. **Org-Wide ADK Governance Plugin**: Calculating token usage and real-time expenditure in Indian Rupees (INR) logged to Supabase and exported to **Google Cloud Monitoring**.
+3. **Agent-to-Agent (A2A) Protocol via Agentgateway**: Standardized multi-agent communication enabling root coordinators to securely discover and delegate long-running tasks to specialized departmental agents (e.g. Finance, HR) without exposing raw system prompts or internal state.
+4. **Org-Wide ADK Governance Plugin**: Calculating token usage and real-time expenditure in Indian Rupees (INR) logged to Supabase and exported to **Google Cloud Monitoring**.
 
 ## 2. Objective & Non-Goals
-- **Objective**: Skills are authored as versioned markdown files; a lightweight router injects only top matching skills; high-value skills can graduate into ADK sub-agents or graph workflows when justified; a global plugin logs token consumption and cost metrics into Supabase PostgreSQL and Google Cloud Monitoring.
+- **Objective**: Skills are authored as versioned markdown files; a lightweight router injects only top matching skills; high-value skills can graduate into ADK sub-agents, sequential workflows, or federated agents via Agentgateway's A2A protocol; a global plugin logs token consumption and cost metrics into Supabase PostgreSQL and Google Cloud Monitoring.
 - **Non-Goals**: No complex visual drag-and-drop workflow builders. Adding or graduating workflows is governed by code review.
 
 ---
@@ -24,6 +25,7 @@ This spec introduces on **Google Cloud (`asia-south1`)**:
   * `registry.py`: Scans and validates local skills.
 * `apps/backend/src/workflows/`
   * `coordinator.py`: Root agent delegating to specialized sub-agents (`transfer_to_agent`).
+  * `a2a_client.py`: Interacts with Agentgateway's A2A proxy to discover and invoke remote departmental agent services.
   * `gst_reconciliation.py`: Sample deterministic `SequentialAgent` for monthly tax filing.
 * `apps/backend/src/plugins/governance_plugin.py`: Global Google ADK Plugin writing token metrics to Supabase and Google Cloud Monitoring.
 * `supabase/migrations/20260927000008_governance_metrics.sql`:
@@ -59,11 +61,17 @@ This spec introduces on **Google Cloud (`asia-south1`)**:
                                   ▼ (Requires deterministic, fixed-order execution pipeline)
 [Level 3: Template Agents]──> SequentialAgent / ParallelAgent (e.g. Monthly GST Reconciliation)
                                   │
-                                  ▼ (Requires dynamic DAG branching or explicit human-input node)
-[Level 4: Graph Workflow] ──> ADK 2.0 Graph Workflow with conditional edges and approval gates
+                                  ▼ (Requires cross-departmental agent collaboration)
+[Level 4: A2A Federated]  ──> Agent-to-Agent (A2A) protocol routed via Agentgateway 1.5.x
 ```
 
-### R08.3: Org-Wide Governance Plugin Logging to Supabase & Cloud Monitoring
+### R08.3: Agent-to-Agent (A2A) Protocol Delegation via Agentgateway
+- When a task spans organizational boundaries (e.g. Core Assistant delegating an audited tax computation to an isolated Finance Agent container):
+  - The Root Agent delegates over Agentgateway's native A2A proxy (`http://127.0.0.1:8080/a2a`).
+  - Agentgateway negotiates schema, checks caller permissions via CEL, and invokes the remote agent.
+  - The remote agent executes without exposing its internal system instructions or private tools.
+
+### R08.4: Org-Wide Governance Plugin Logging to Supabase & Cloud Monitoring
 - The `GovernancePlugin` attaches globally to the ADK Runner:
   - Hooks: `before_agent`, `after_agent`, `before_tool`, `after_tool`.
   - Calculates cost in Indian Rupees (INR) based on Google Vertex AI pricing (e.g. ₹0.00625 per 1k input tokens for Gemini 2.0 Flash).
@@ -79,5 +87,6 @@ This spec introduces on **Google Cloud (`asia-south1`)**:
 | **VAL-08.1** | Adding a markdown file in `skills/` makes the skill discoverable with zero code change | `pytest apps/backend/tests/test_skill_discovery.py` | [ ] |
 | **VAL-08.2** | Router injects only matching skills; unrelated skills are excluded from context | `pytest apps/backend/tests/test_skill_routing.py` | [ ] |
 | **VAL-08.3** | Level 3 SequentialAgent executes steps deterministically passing state via `output_key` | `pytest apps/backend/tests/test_sequential_agent.py` | [ ] |
-| **VAL-08.4** | Governance plugin writes token usage and INR cost rows to Supabase `agent_runs` | `pytest apps/backend/tests/test_governance_inr_logging.py` | [ ] |
-| **VAL-08.5** | Google Cloud Monitoring receives custom metric `token_cost_inr` | `pytest apps/backend/tests/test_cloud_monitoring_emission.py` | [ ] |
+| **VAL-08.4** | Coordinator agent delegates task to external agent using Agentgateway A2A protocol | `pytest apps/backend/tests/test_a2a_delegation.py` | [ ] |
+| **VAL-08.5** | Governance plugin writes token usage and INR cost rows to Supabase `agent_runs` | `pytest apps/backend/tests/test_governance_inr_logging.py` | [ ] |
+| **VAL-08.6** | Google Cloud Monitoring receives custom metric `token_cost_inr` | `pytest apps/backend/tests/test_cloud_monitoring_emission.py` | [ ] |
