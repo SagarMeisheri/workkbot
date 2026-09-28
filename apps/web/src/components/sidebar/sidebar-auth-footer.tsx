@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogIn, User, Settings, Shield, Trash2, LogOut, ChevronUp } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { BACKEND_URL } from "@/lib/config";
 
 interface SidebarAuthFooterProps {
   user: {
@@ -45,7 +46,7 @@ export function SidebarAuthFooter({
     setDeleting(true);
     try {
       const token = user?.access_token || localStorage.getItem("workkbot_token");
-      await fetch("http://localhost:8000/api/v1/account/delete", {
+      await fetch(`${BACKEND_URL}/api/v1/account/delete`, {
         method: "DELETE",
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),

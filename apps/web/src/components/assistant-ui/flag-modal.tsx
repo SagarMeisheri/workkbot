@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Flag, X, ShieldAlert, CheckCircle } from "lucide-react";
+import { BACKEND_URL } from "@/lib/config";
 
 interface FlagModalProps {
   isOpen: boolean;
@@ -34,7 +35,7 @@ export function FlagModal({
     setErrorMsg(null);
 
     try {
-      const res = await fetch("http://localhost:8000/api/v1/chat/report", {
+      const res = await fetch(`${BACKEND_URL}/api/v1/chat/report`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

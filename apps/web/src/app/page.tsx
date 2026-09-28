@@ -14,6 +14,7 @@ import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
 import { supabase } from "@/lib/supabase";
+import { BACKEND_URL } from "@/lib/config";
 
 export default function WorkspacePage() {
   const [user, setUser] = useState<any>(null);
@@ -66,7 +67,7 @@ export default function WorkspacePage() {
 
         // Check live consent status from backend
         try {
-          const res = await fetch("http://localhost:8000/api/v1/consent/status", {
+          const res = await fetch(`${BACKEND_URL}/api/v1/consent/status`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
           if (res.ok) {
@@ -81,7 +82,7 @@ export default function WorkspacePage() {
 
         // Fetch user conversations
         try {
-          const convRes = await fetch("http://localhost:8000/api/v1/conversations", {
+          const convRes = await fetch(`${BACKEND_URL}/api/v1/conversations`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
           if (convRes.ok) {

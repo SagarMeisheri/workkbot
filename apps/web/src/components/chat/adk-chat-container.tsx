@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
+import { BACKEND_URL } from "@/lib/config";
 
 export interface ChatMessage {
   id: string;
@@ -81,7 +82,7 @@ export function useAdkStreamingChat({
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch("http://localhost:8000/api/v1/chat/stream", {
+      const response = await fetch(`${BACKEND_URL}/api/v1/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

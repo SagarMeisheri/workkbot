@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Shield, Check, Lock, Globe, FileText, ArrowRight } from "lucide-react";
+import { BACKEND_URL } from "@/lib/config";
 
 interface ConsentModalProps {
   isOpen: boolean;
@@ -44,7 +45,7 @@ export function ConsentModal({ isOpen, onConsentSuccess, user }: ConsentModalPro
     setSubmitting(true);
     try {
       const token = user?.access_token || localStorage.getItem("workkbot_token");
-      await fetch("http://localhost:8000/api/v1/consent", {
+      await fetch(`${BACKEND_URL}/api/v1/consent`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

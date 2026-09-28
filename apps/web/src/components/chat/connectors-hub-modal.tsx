@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { SEED_CONNECTORS, ConnectorDefinition } from "@workkbot/shared-types";
+import { BACKEND_URL } from "@/lib/config";
 
 interface ConnectorsHubModalProps {
   isOpen: boolean;
@@ -35,7 +36,7 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
     try {
       const token = user?.access_token || localStorage.getItem("workkbot_token");
       if (!token) return;
-      const res = await fetch("http://localhost:8000/api/v1/auth/connectors", {
+      const res = await fetch(`${BACKEND_URL}/api/v1/auth/connectors`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -64,7 +65,7 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
         return;
       }
       // Symmetrical OAuth callback endpoint storing into Supabase Vault
-      const res = await fetch("http://localhost:8000/api/v1/auth/connectors/oauth/callback", {
+      const res = await fetch(`${BACKEND_URL}/api/v1/auth/connectors/oauth/callback`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -94,7 +95,7 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
     try {
       const token = user?.access_token || localStorage.getItem("workkbot_token");
       if (!token) return;
-      const res = await fetch(`http://localhost:8000/api/v1/auth/connectors/${connectionId}`, {
+      const res = await fetch(`${BACKEND_URL}/api/v1/auth/connectors/${connectionId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

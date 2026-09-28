@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shield, Sparkles, ChevronDown, ChevronUp, ArrowRight, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { BACKEND_URL } from "@/lib/config";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("http://localhost:8000/api/v1/auth/reviewer-login", {
+      const response = await fetch(`${BACKEND_URL}/api/v1/auth/reviewer-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
