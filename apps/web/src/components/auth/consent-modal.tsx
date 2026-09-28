@@ -48,7 +48,7 @@ export function ConsentModal({ isOpen, onConsentSuccess, user }: ConsentModalPro
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token || "mock"}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           consent_version: "2026.1",

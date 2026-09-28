@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from src.config import settings
 from src.auth.dependencies import CurrentUser, get_current_user
-from src.auth.client import _MOCK_DB
+from src.auth.client import _local_db
 from src.routers.auth import router as auth_router
 from src.routers.consent import router as consent_router
 from src.routers.account import router as account_router
@@ -63,7 +63,7 @@ async def chat_endpoint(
     If the user has not signed statutory consent, aborts with HTTP 403.
     """
     consent = next(
-        (c for c in _MOCK_DB["user_consents"]
+        (c for c in _local_db["user_consents"]
          if c["user_id"] == current_user.id and c["status"] == "active"),
         None
     )

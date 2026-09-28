@@ -41,7 +41,7 @@ export function SidebarAuthFooter({
       await fetch("http://localhost:8000/api/v1/account/delete", {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${token || "mock-token"}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
     } catch (e) {

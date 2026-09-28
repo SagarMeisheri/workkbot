@@ -4,7 +4,7 @@ Connects Zoho Workplace MCP via accounts.zoho.in and stores tokens sealed in Vau
 import pytest
 from httpx import AsyncClient, ASGITransport
 from src.main import app
-from src.auth.client import supabase_admin, _MOCK_VAULT, _MOCK_DB
+from src.auth.client import supabase_admin, _local_vault, _local_db
 from src.config import settings
 
 
@@ -35,7 +35,7 @@ async def test_zoho_connect_and_vault_storage():
             "/api/v1/auth/connectors/oauth/callback",
             json={
                 "provider": "zoho_workplace",
-                "code": "mock-zoho-auth-code-12345",
+                "code": "zoho-auth-code-12345",
             },
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -46,7 +46,7 @@ async def test_zoho_connect_and_vault_storage():
         
         # Verify secret exists in Vault
         vault_record = next(
-            (v for v in _MOCK_VAULT.values() if v["user_id"] == user_id and v["provider"] == "zoho_workplace"),
+            (v for v in _local_vault.values() if v["user_id"] == user_id and v["provider"] == "zoho_workplace"),
             None
         )
         assert vault_record is not None

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from src.auth.dependencies import CurrentUser, get_current_user
-from src.auth.client import _MOCK_DB
+from src.auth.client import _local_db
 from src.config import settings
 
 router = APIRouter(prefix="/api/v1/consent", tags=["consent"])
@@ -53,7 +53,7 @@ class RecordConsentResponse(BaseModel):
 async def get_consent_status(current_user: CurrentUser = Depends(get_current_user)):
     """Checks whether the authenticated user has active statutory consent."""
     consent = next(
-        (c for c in _MOCK_DB["user_consents"]
+        (c for c in _local_db["user_consents"]
          if c["user_id"] == current_user.id and c["status"] == "active"),
         None
     )
@@ -102,7 +102,7 @@ async def record_user_consent(
     }
     
     # Store in DB
-    _MOCK_DB["user_consents"].append(record)
+    _local_db["user_consents"].append(record)
 
     return RecordConsentResponse(
         id=record_id,

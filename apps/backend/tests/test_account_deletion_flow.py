@@ -4,7 +4,7 @@ Verifies /api/v1/account/delete cascades deletion across user, vault secrets, an
 import pytest
 from httpx import AsyncClient, ASGITransport
 from src.main import app
-from src.auth.client import supabase_admin, _MOCK_DB, _MOCK_VAULT
+from src.auth.client import supabase_admin, _local_db, _local_vault
 
 
 @pytest.mark.asyncio
@@ -15,13 +15,13 @@ async def test_in_app_account_deletion_cascades_completely():
     token = supabase_admin.generate_token_for_user(user_id=user_id, email="delete_me@workkbot.in", org_id=org_id)
 
     # 1. Setup user records: profile, consent, mcp connection, vault secret
-    _MOCK_DB["profiles"].append({
+    _local_db["profiles"].append({
         "id": user_id,
         "org_id": org_id,
         "email": "delete_me@workkbot.in",
         "role": "member",
     })
-    _MOCK_DB["user_consents"].append({
+    _local_db["user_consents"].append({
         "id": "consent_del_1",
         "user_id": user_id,
         "org_id": org_id,
@@ -33,7 +33,7 @@ async def test_in_app_account_deletion_cascades_completely():
         provider="google_workspace",
         secret_data={"access_token": "token_to_purge"},
     )
-    _MOCK_DB["mcp_connections"].append({
+    _local_db["mcp_connections"].append({
         "id": "conn_del_1",
         "user_id": user_id,
         "org_id": org_id,
@@ -43,10 +43,10 @@ async def test_in_app_account_deletion_cascades_completely():
     })
 
     # Assert preconditions exist
-    assert any(p["id"] == user_id for p in _MOCK_DB["profiles"])
-    assert any(c["user_id"] == user_id for c in _MOCK_DB["user_consents"])
-    assert any(m["user_id"] == user_id for m in _MOCK_DB["mcp_connections"])
-    assert secret_id in _MOCK_VAULT
+    assert any(p["id"] == user_id for p in _local_db["profiles"])
+    assert any(c["user_id"] == user_id for c in _local_db["user_consents"])
+    assert any(m["user_id"] == user_id for m in _local_db["mcp_connections"])
+    assert secret_id in _local_vault
 
     # 2. Call DELETE /api/v1/account/delete
     transport = ASGITransport(app=app)
@@ -62,7 +62,7 @@ async def test_in_app_account_deletion_cascades_completely():
         assert data["purged_vault_secrets"] >= 1
 
     # 3. Assert complete purge in DB and Vault (Zero Residual Records)
-    assert not any(p["id"] == user_id for p in _MOCK_DB["profiles"])
-    assert not any(c["user_id"] == user_id for c in _MOCK_DB["user_consents"])
-    assert not any(m["user_id"] == user_id for m in _MOCK_DB["mcp_connections"])
-    assert secret_id not in _MOCK_VAULT
+    assert not any(p["id"] == user_id for p in _local_db["profiles"])
+    assert not any(c["user_id"] == user_id for c in _local_db["user_consents"])
+    assert not any(m["user_id"] == user_id for m in _local_db["mcp_connections"])
+    assert secret_id not in _local_vault

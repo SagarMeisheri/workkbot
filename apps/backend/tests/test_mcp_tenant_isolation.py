@@ -4,7 +4,7 @@ Verifies that a user from Org A cannot access or view Org B MCP connections or s
 import pytest
 from httpx import AsyncClient, ASGITransport
 from src.main import app
-from src.auth.client import supabase_admin, _MOCK_DB, _MOCK_VAULT
+from src.auth.client import supabase_admin, _local_db, _local_vault
 
 
 @pytest.mark.asyncio

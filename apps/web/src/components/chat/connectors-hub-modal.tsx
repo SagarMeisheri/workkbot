@@ -34,19 +34,16 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
   const fetchConnections = async () => {
     try {
       const token = localStorage.getItem("workkbot_token");
+      if (!token) return;
       const res = await fetch("http://localhost:8000/api/v1/auth/connectors", {
-        headers: { Authorization: `Bearer ${token || "mock"}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
         setActiveConnections(data);
       }
     } catch (e) {
-      // Fallback local mock connections
-      const local = localStorage.getItem("workkbot_connections");
-      if (local) {
-        setActiveConnections(JSON.parse(local));
-      }
+      console.error("Failed to fetch connectors:", e);
     }
   };
 
@@ -62,12 +59,16 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
     setConnectingProvider(connector.id);
     try {
       const token = localStorage.getItem("workkbot_token");
+      if (!token) {
+        alert("Please sign in first to connect tools.");
+        return;
+      }
       // Symmetrical OAuth callback endpoint storing into Supabase Vault
       const res = await fetch("http://localhost:8000/api/v1/auth/connectors/oauth/callback", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token || "mock"}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           provider: connector.id,
@@ -79,17 +80,8 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
         const newConn = await res.json();
         setActiveConnections((prev) => [...prev.filter((c) => c.provider !== connector.id), newConn]);
       } else {
-        // Fallback local persistence
-        const mockConn = {
-          id: `conn_${Date.now()}`,
-          provider: connector.id,
-          scopes: connector.defaultScopes,
-          status: "active",
-          updated_at: new Date().toISOString(),
-        };
-        const updated = [...activeConnections.filter((c) => c.provider !== connector.id), mockConn];
-        setActiveConnections(updated);
-        localStorage.setItem("workkbot_connections", JSON.stringify(updated));
+        const errData = await res.json().catch(() => ({}));
+        console.error("Connection failed:", errData);
       }
     } catch (e) {
       console.error("Connect error:", e);
@@ -101,16 +93,16 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
   const handleDisconnect = async (connectionId: string) => {
     try {
       const token = localStorage.getItem("workkbot_token");
-      await fetch(`http://localhost:8000/api/v1/auth/connectors/${connectionId}`, {
+      if (!token) return;
+      const res = await fetch(`http://localhost:8000/api/v1/auth/connectors/${connectionId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token || "mock"}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.ok) {
+        setActiveConnections((prev) => prev.filter((c) => c.id !== connectionId));
+      }
     } catch (e) {
       console.error("Disconnect error:", e);
-    } finally {
-      const updated = activeConnections.filter((c) => c.id !== connectionId);
-      setActiveConnections(updated);
-      localStorage.setItem("workkbot_connections", JSON.stringify(updated));
     }
   };
 

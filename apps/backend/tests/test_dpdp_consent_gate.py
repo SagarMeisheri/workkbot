@@ -4,7 +4,7 @@ First-time user cannot call /chat without signing DPDP statutory consent.
 import pytest
 from httpx import AsyncClient, ASGITransport
 from src.main import app
-from src.auth.client import supabase_admin, _MOCK_DB
+from src.auth.client import supabase_admin, _local_db
 from src.routers.consent import DPDP_DISCLOSURES_EN
 
 
@@ -18,7 +18,7 @@ async def test_chat_blocked_without_dpdp_consent():
         org_id="a0000000-0000-0000-0000-000000000001",
     )
     # Ensure no consent in DB
-    _MOCK_DB["user_consents"] = [c for c in _MOCK_DB["user_consents"] if c["user_id"] != user_id]
+    _local_db["user_consents"] = [c for c in _local_db["user_consents"] if c["user_id"] != user_id]
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

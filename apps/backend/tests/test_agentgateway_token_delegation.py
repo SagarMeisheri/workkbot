@@ -3,7 +3,7 @@ Verifies token delegation retrieves decrypted tokens and enforces CEL sub == own
 """
 import pytest
 from src.auth.delegation import token_delegator
-from src.auth.client import supabase_admin, _MOCK_DB
+from src.auth.client import supabase_admin, _local_db
 
 
 @pytest.mark.asyncio
@@ -17,11 +17,11 @@ async def test_delegation_retrieves_headers_and_injects_token():
     secret_id = supabase_admin.store_vault_secret(
         user_id=user_id,
         provider="google_workspace",
-        secret_data={"access_token": "ya29.mock_google_workspace_access_token_xyz"},
+        secret_data={"access_token": "ya29.live_google_workspace_access_token_xyz"},
     )
 
     # Register active connection
-    _MOCK_DB["mcp_connections"].append({
+    _local_db["mcp_connections"].append({
         "id": "conn_delegation_1",
         "user_id": user_id,
         "org_id": org_id,
@@ -41,7 +41,7 @@ async def test_delegation_retrieves_headers_and_injects_token():
     )
 
     assert headers["Authorization"] == f"Bearer {token}"
-    assert headers["X-Upstream-Authorization"] == "Bearer ya29.mock_google_workspace_access_token_xyz"
+    assert headers["X-Upstream-Authorization"] == "Bearer ya29.live_google_workspace_access_token_xyz"
     assert headers["X-Workkbot-User-Id"] == user_id
     assert headers["X-Workkbot-Org-Id"] == org_id
 

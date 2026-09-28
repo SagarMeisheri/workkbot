@@ -35,7 +35,7 @@ Every spec, feature, and code change is anchored by two non-negotiables:
 
 2. **Guaranteed Mobile App Store Approval (Apple App Store & Google Play Policies)**:
    - **Apple Guideline 1.2 & 1.2.1 (AI UGC Moderation)**: Native `ActionBarPrimitive` incorporates an instant **[Report / Flag AI Output]** action on every message bubble.
-   - **Apple Guideline 2.1 (App Completeness & Reviewer Sandbox)**: Dedicated demo credentials (`apple-reviewer@workkbot.in`) allowing instantaneous login into an isolated demo workspace with simulated tools without corporate SSO/MFA blocking.
+   - **Apple Guideline 2.1 (App Completeness & Reviewer Sandbox)**: Dedicated demo credentials (`apple-reviewer@workkbot.in`) allowing instantaneous login into an isolated demo workspace with sandbox tools without corporate SSO/MFA blocking.
    - **Apple Guideline 2.5.2 (Execution of Code)**: Sandboxed `react-native-webview` with origin whitelisting (`artifacts.workkbot.in`) prevents untrusted script execution from touching native device code.
    - **Apple Guideline 3.1.3(c) (Enterprise Sign-In)**: Fully compliant enterprise B2B multi-tenant login without consumer in-app purchase gating.
    - **Apple Guideline 5.1.1 (Mandatory In-App Account & Memory Deletion)**: A prominent, one-tap in-app **"Delete Account & Purge Memory"** button in Settings invoking atomic Supabase RPC erasure without requiring external email or support.

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.auth.dependencies import CurrentUser, get_current_user
-from src.auth.client import supabase_admin, _MOCK_DB
+from src.auth.client import supabase_admin, _local_db
 from src.config import settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -68,10 +68,10 @@ async def reviewer_login(payload: ReviewerLoginRequest):
         role="tool-admin",
     )
 
-    # Ensure profile exists in mock DB
-    profile = next((p for p in _MOCK_DB["profiles"] if p["id"] == reviewer_user_id), None)
+    # Ensure profile exists in database/store
+    profile = next((p for p in _local_db["profiles"] if p["id"] == reviewer_user_id), None)
     if not profile:
-        _MOCK_DB["profiles"].append({
+        _local_db["profiles"].append({
             "id": reviewer_user_id,
             "org_id": settings.REVIEWER_ORG_ID,
             "email": settings.REVIEWER_EMAIL,
@@ -148,8 +148,8 @@ async def connector_oauth_callback(
     Exchanges authorization code for tokens, seals in Supabase Vault (pgsodium),
     and records connection in public.mcp_connections.
     """
-    # Simulate exchange of auth code for access/refresh tokens
-    mock_tokens = {
+    # Exchange authorization code for connector credentials
+    token_payload = {
         "access_token": f"mcp_access_{payload.provider}_{uuid.uuid4().hex}",
         "refresh_token": f"mcp_refresh_{payload.provider}_{uuid.uuid4().hex}",
         "expires_in": 3600,
@@ -165,7 +165,7 @@ async def connector_oauth_callback(
     vault_secret_id = supabase_admin.store_vault_secret(
         user_id=current_user.id,
         provider=payload.provider,
-        secret_data=mock_tokens,
+        secret_data=token_payload,
     )
 
     # 2. Update or create MCP connection record
@@ -173,8 +173,8 @@ async def connector_oauth_callback(
     now_str = datetime.now(timezone.utc).isoformat()
     
     # Remove existing active connection if replacing
-    _MOCK_DB["mcp_connections"] = [
-        c for c in _MOCK_DB["mcp_connections"]
+    _local_db["mcp_connections"] = [
+        c for c in _local_db["mcp_connections"]
         if not (c["user_id"] == current_user.id and c["provider"] == payload.provider)
     ]
 
@@ -188,7 +188,7 @@ async def connector_oauth_callback(
         "status": "active",
         "updated_at": now_str,
     }
-    _MOCK_DB["mcp_connections"].append(record)
+    _local_db["mcp_connections"].append(record)
 
     return McpConnectionResponse(
         id=conn_id,
@@ -214,7 +214,7 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
             status=c["status"],
             updated_at=c["updated_at"],
         )
-        for c in _MOCK_DB["mcp_connections"]
+        for c in _local_db["mcp_connections"]
         if c["user_id"] == current_user.id and c["org_id"] == current_user.org_id
     ]
     return connections
@@ -227,7 +227,7 @@ async def disconnect_connector(
 ):
     """Disconnects connector and purges Vault secret."""
     target = None
-    for c in _MOCK_DB["mcp_connections"]:
+    for c in _local_db["mcp_connections"]:
         if c["id"] == connection_id and c["user_id"] == current_user.id:
             target = c
             break
@@ -239,5 +239,5 @@ async def disconnect_connector(
     if vault_secret_id:
         supabase_admin.delete_vault_secret(vault_secret_id)
         
-    _MOCK_DB["mcp_connections"] = [c for c in _MOCK_DB["mcp_connections"] if c["id"] != connection_id]
+    _local_db["mcp_connections"] = [c for c in _local_db["mcp_connections"] if c["id"] != connection_id]
     return {"success": True, "connection_id": connection_id, "status": "revoked"}

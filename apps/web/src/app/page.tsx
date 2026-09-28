@@ -23,11 +23,7 @@ export default function WorkspacePage() {
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const [isConsentOpen, setIsConsentOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [threads, setThreads] = useState<string[]>([
-    "GST Calculation March",
-    "Zoho Books Ledger Sync",
-    "Google Drive Q3 Architecture",
-  ]);
+  const [threads, setThreads] = useState<string[]>([]);
   const [activeThread, setActiveThread] = useState<string>("New chat");
 
   useEffect(() => {
@@ -48,30 +44,61 @@ export default function WorkspacePage() {
     }
   }, []);
 
-  const handleSendMessage = (text: string, mode: "chat" | "cowork", model: string) => {
+  const handleSendMessage = async (text: string, mode: "chat" | "cowork", model: string) => {
     const userMsg: Message = {
       id: `msg_${Date.now()}_u`,
       role: "user",
       content: text,
     };
     setMessages((prev) => [...prev, userMsg]);
-    setActiveThread(text.slice(0, 30));
+    const threadTitle = text.slice(0, 30);
+    setActiveThread(threadTitle);
+    setThreads((prev) => (prev.includes(threadTitle) ? prev : [threadTitle, ...prev]));
 
-    // Simulate response with tool grounding simulation
-    setTimeout(() => {
-      let reply = `Processed via ${model} in ${mode} mode.`;
-      if (text.toLowerCase().includes("gst")) {
-        reply = "Here is the summary of your March GST computation: Total Output IGST: ₹1,42,800. Net Input Tax Credit claimed: ₹94,200. Balance payable before April 20th: ₹48,600.";
-      } else if (text.toLowerCase().includes("zoho")) {
-        reply = "Retrieved 3 unpaid invoices from Zoho Books (.in datacenter) totaling ₹2,15,400 with overdue ageing > 30 days.";
+    const token = localStorage.getItem("workkbot_token");
+
+    try {
+      const response = await fetch("http://localhost:8000/api/v1/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ message: text }),
+      });
+
+      if (response.status === 403) {
+        // DPDP Statutory Consent Required (VAL-01.4)
+        setIsConsentOpen(true);
+        const consentNeededMsg: Message = {
+          id: `msg_${Date.now()}_a`,
+          role: "assistant",
+          content: "Statutory DPDP consent required before processing queries. Please accept the statutory consent notice to proceed.",
+        };
+        setMessages((prev) => [...prev, consentNeededMsg]);
+        return;
       }
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server returned ${response.status}`);
+      }
+
+      const data = await response.json();
       const assistantMsg: Message = {
         id: `msg_${Date.now()}_a`,
         role: "assistant",
-        content: reply,
+        content: data.reply || "Response received from agent runtime.",
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    }, 600);
+    } catch (err: any) {
+      const errorMsg: Message = {
+        id: `msg_${Date.now()}_err`,
+        role: "assistant",
+        content: `Service communication error: ${err.message}. Ensure the Workkbot backend is running on port 8000.`,
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    }
   };
 
   const handleNewThread = () => {
@@ -109,41 +136,33 @@ export default function WorkspacePage() {
 
           {/* Thread History Items */}
           <div className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-4">
-            <div>
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2">
-                Today
-              </span>
-              <div className="mt-1 flex flex-col gap-0.5">
-                {threads.slice(0, 2).map((t, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setActiveThread(t)}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-accent text-foreground/90 truncate transition-colors flex items-center gap-2"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="truncate">{t}</span>
-                  </button>
-                ))}
+            {threads.length === 0 ? (
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground/70">
+                No recent conversations
               </div>
-            </div>
-
-            <div>
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2">
-                Previous 7 Days
-              </span>
-              <div className="mt-1 flex flex-col gap-0.5">
-                {threads.slice(2).map((t, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setActiveThread(t)}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-accent text-foreground/90 truncate transition-colors flex items-center gap-2"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="truncate">{t}</span>
-                  </button>
-                ))}
+            ) : (
+              <div>
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2">
+                  Recent Threads
+                </span>
+                <div className="mt-1 flex flex-col gap-0.5">
+                  {threads.map((t, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveThread(t)}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs truncate transition-colors flex items-center gap-2 ${
+                        activeThread === t
+                          ? "bg-accent text-accent-foreground font-medium"
+                          : "hover:bg-accent/60 text-foreground/80"
+                      }`}
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate">{t}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 

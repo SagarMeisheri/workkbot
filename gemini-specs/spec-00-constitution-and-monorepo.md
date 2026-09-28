@@ -77,7 +77,7 @@ workkbot/
 - Initialize the Supabase local environment via the Supabase CLI (`npx supabase init`).
 - Local Supabase stack provides:
   - PostgreSQL 16+ with extensions: `uuid-ossp`, `pgcrypto`, `pgsodium` (Vault), and `vector` (`pgvector`).
-  - GoTrue authentication service with email, OAuth, and SAML mock endpoints.
+  - GoTrue authentication service with email, OAuth, and SAML endpoints.
   - In-memory Realtime engine (`postgres_changes` and Broadcast).
 - Startup script:
   ```bash

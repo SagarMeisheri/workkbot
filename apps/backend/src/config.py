@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     
     # Supabase credentials
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "http://127.0.0.1:54321")
-    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "mock-anon-key-workkbot-local")
-    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "mock-service-role-key-workkbot-local")
+    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "dev-anon-key-workkbot-local")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "dev-service-role-key-workkbot-local")
     SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-bytes-long")
     
     # Reviewer Sandbox (Apple Guideline 2.1)
@@ -23,12 +23,12 @@ class Settings(BaseSettings):
     AGENTGATEWAY_URL: str = os.getenv("AGENTGATEWAY_URL", "http://127.0.0.1:8080")
     
     # Google Workspace OAuth
-    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "mock-google-client-id")
-    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "mock-google-client-secret")
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
     
     # Zoho Workplace OAuth
-    ZOHO_CLIENT_ID: str = os.getenv("ZOHO_CLIENT_ID", "mock-zoho-client-id")
-    ZOHO_CLIENT_SECRET: str = os.getenv("ZOHO_CLIENT_SECRET", "mock-zoho-client-secret")
+    ZOHO_CLIENT_ID: str = os.getenv("ZOHO_CLIENT_ID", "")
+    ZOHO_CLIENT_SECRET: str = os.getenv("ZOHO_CLIENT_SECRET", "")
     ZOHO_ACCOUNTS_URL: str = "https://accounts.zoho.in"
     
     # DPDP

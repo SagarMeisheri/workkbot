@@ -3,7 +3,7 @@ Retrieves encrypted tokens from Supabase Vault and injects authenticated session
 """
 from typing import Dict, Any, Optional
 import httpx
-from src.auth.client import supabase_admin, _MOCK_DB
+from src.auth.client import supabase_admin, _local_db
 from src.config import settings
 
 
@@ -23,7 +23,7 @@ class TokenDelegationService:
         """
         # Find active connection
         connection = None
-        for conn in _MOCK_DB["mcp_connections"]:
+        for conn in _local_db["mcp_connections"]:
             if conn["user_id"] == user_id and conn["provider"] == provider and conn["status"] == "active":
                 connection = conn
                 break

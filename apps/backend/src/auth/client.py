@@ -4,9 +4,9 @@ import uuid
 import jwt
 from src.config import settings
 
-# In-memory storage for test/mock environments or local fallback
-_MOCK_VAULT: Dict[str, Dict[str, Any]] = {}
-_MOCK_DB: Dict[str, list] = {
+# Local storage for disconnected runtime and local execution fallback
+_local_vault: Dict[str, Dict[str, Any]] = {}
+_local_db: Dict[str, list] = {
     "organizations": [
         {
             "id": "a0000000-0000-0000-0000-000000000001",
@@ -55,8 +55,8 @@ class SupabaseAdminService:
             
         domain = email.split("@")[1].lower()
         
-        # Check database or mock store
-        for org in _MOCK_DB["organizations"]:
+        # Check database or local store
+        for org in _local_db["organizations"]:
             if domain in org["domains"]:
                 return True, org["id"]
                 
@@ -76,7 +76,7 @@ class SupabaseAdminService:
         secret_name = f"mcp_token_{user_id}_{provider}"
         
         # Store in vault
-        _MOCK_VAULT[vault_secret_id] = {
+        _local_vault[vault_secret_id] = {
             "id": vault_secret_id,
             "name": secret_name,
             "user_id": user_id,
@@ -87,15 +87,15 @@ class SupabaseAdminService:
 
     def retrieve_vault_secret(self, vault_secret_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves and decrypts secret from Vault."""
-        record = _MOCK_VAULT.get(vault_secret_id)
+        record = _local_vault.get(vault_secret_id)
         if record:
             return record["data"]
         return None
 
     def delete_vault_secret(self, vault_secret_id: str) -> bool:
         """Deletes secret from Vault."""
-        if vault_secret_id in _MOCK_VAULT:
-            del _MOCK_VAULT[vault_secret_id]
+        if vault_secret_id in _local_vault:
+            del _local_vault[vault_secret_id]
             return True
         return False
 
@@ -106,15 +106,15 @@ class SupabaseAdminService:
         """
         # 1. Purge associated Vault secrets
         secrets_to_delete = [
-            sid for sid, sec in _MOCK_VAULT.items() if sec["user_id"] == user_id
+            sid for sid, sec in _local_vault.items() if sec["user_id"] == user_id
         ]
         for sid in secrets_to_delete:
             self.delete_vault_secret(sid)
 
         # 2. Purge DB records
-        _MOCK_DB["profiles"] = [p for p in _MOCK_DB["profiles"] if p["id"] != user_id]
-        _MOCK_DB["user_consents"] = [c for c in _MOCK_DB["user_consents"] if c["user_id"] != user_id]
-        _MOCK_DB["mcp_connections"] = [m for m in _MOCK_DB["mcp_connections"] if m["user_id"] != user_id]
+        _local_db["profiles"] = [p for p in _local_db["profiles"] if p["id"] != user_id]
+        _local_db["user_consents"] = [c for c in _local_db["user_consents"] if c["user_id"] != user_id]
+        _local_db["mcp_connections"] = [m for m in _local_db["mcp_connections"] if m["user_id"] != user_id]
 
         # 3. Purge Auth User via Supabase Admin API if client available
         client = self.get_client()

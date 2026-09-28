@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shield, Sparkles, ChevronDown, ChevronUp, ArrowRight, CheckCircle2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,23 +15,16 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      // In production, triggers Supabase OAuth:
-      // supabase.auth.signInWithOAuth({ provider: 'google', options: { scopes: 'openid email profile' } })
-      // For local development demonstration:
-      localStorage.setItem(
-        "workkbot_auth",
-        JSON.stringify({
-          user_id: "user_demo_google_123",
-          email: "sagar@workkbot.in",
-          first_name: "sagar",
-          org_id: "a0000000-0000-0000-0000-000000000001",
-          role: "member",
-          is_demo: false,
-        })
-      );
-      router.push("/");
+      const { error: signInError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/`,
+          scopes: "openid email profile",
+        },
+      });
+      if (signInError) throw signInError;
     } catch (err: any) {
-      setError(err?.message || "Failed to initialize Google sign-in");
+      setError(err?.message || "Failed to initialize Google sign-in. Ensure Supabase is configured.");
     } finally {
       setLoading(false);
     }
@@ -50,7 +44,8 @@ export default function LoginPage() {
       });
 
       if (!response.ok) {
-        throw new Error("Reviewer authentication failed");
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || "Reviewer authentication failed");
       }
 
       const data = await response.json();
@@ -68,19 +63,7 @@ export default function LoginPage() {
       );
       router.push("/");
     } catch (err: any) {
-      // Fallback local reviewer token if backend is offline
-      localStorage.setItem(
-        "workkbot_auth",
-        JSON.stringify({
-          user_id: "00000000-0000-0000-0000-000000000001",
-          email: "apple-reviewer@workkbot.in",
-          first_name: "Reviewer",
-          org_id: "e0000000-0000-0000-0000-000000000002",
-          role: "tool-admin",
-          is_demo: true,
-        })
-      );
-      router.push("/");
+      setError(err?.message || "Failed to connect to backend for reviewer authentication. Ensure backend is running on port 8000.");
     } finally {
       setLoading(false);
     }
@@ -157,7 +140,7 @@ export default function LoginPage() {
                 </code>
               </div>
               <p className="text-muted-foreground text-[11px]">
-                Instant sign-in directly into the isolated sandbox organization with mock data. Bypasses corporate Google SSO and MFA.
+                Instant sign-in directly into the isolated sandbox organization with pre-configured tools. Bypasses corporate Google SSO and MFA.
               </p>
               <button
                 onClick={handleReviewerLogin}

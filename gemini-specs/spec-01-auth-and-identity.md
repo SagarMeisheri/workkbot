@@ -103,7 +103,7 @@ An interactive **Plus (`+`) Icon** is positioned directly inside the bottom-left
   - Email: `apple-reviewer@workkbot.in`
   - Password: Pre-configured in App Store review notes.
   - Bypasses corporate Google SSO and MFA.
-  - Bound to an isolated demo organization with pre-seeded mock Google Workspace and Zoho tool responses for seamless reviewer testing.
+  - Bound to an isolated demo organization with pre-seeded sandbox tools for seamless reviewer testing.
 
 ### R01.4: DPDP Act 2023 Statutory Consent & AI Disclosure (Apple Guideline 5.1.2i)
 - Upon first login, users encounter a mandatory blocking interstitial before accessing chat:

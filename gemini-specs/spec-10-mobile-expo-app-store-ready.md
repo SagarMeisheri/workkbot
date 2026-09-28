@@ -17,7 +17,7 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 - **Security**: Hardware-backed session storage in iOS Keychain / Android Keystore (`expo-secure-store`), biometric authentication (`expo-local-authentication`), Cloud Armor WAF with geofencing, and strict tenant RLS.
 - **Mobile App Approval (Apple App Store & Google Play)**:
   - **Guideline 1.2 (AI UGC Moderation)**: Native `ActionBarPrimitive` embedding instant **[Report / Flag AI Output]** action on every message bubble.
-  - **Guideline 2.1 (App Completeness & Reviewer Sandbox)**: Deterministic review credentials (`apple-reviewer@workkbot.in`) bypassing corporate MFA to enter an isolated demo tenant with pre-seeded mock tools.
+  - **Guideline 2.1 (App Completeness & Reviewer Sandbox)**: Deterministic review credentials (`apple-reviewer@workkbot.in`) bypassing corporate MFA to enter an isolated demo tenant with pre-seeded sandbox tools.
   - **Guideline 2.5.2 (Execution of Code)**: Sandboxed `react-native-webview` for visual artifacts, strictly prohibiting native runtime code loading.
   - **Guideline 3.1.3(c) (Enterprise Sign-In)**: Compliant enterprise B2B login without in-app purchase paywalls.
   - **Guideline 5.1.1 (In-App Account Deletion)**: One-tap **"Delete Account & Purge Memory"** button in Settings invoking Supabase atomic erasure.
@@ -103,7 +103,7 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 #### 2. Reviewer Sandbox Mode (Apple Guideline 2.1)
 - The login screen includes a hidden/debug trigger (or dedicated review credentials: `apple-reviewer@workkbot.in`) that:
   - Bypasses corporate SSO/MFA.
-  - Connects to an isolated demo workspace with simulated tools.
+  - Connects to an isolated demo workspace with sandbox tools.
   - Included in App Store Connect **Review Notes** to guarantee Apple reviewers can test the app immediately without login failures.
 
 #### 3. In-App Account & Data Deletion (Apple Guideline 5.1.1)
