@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     
     # DPDP
     CURRENT_CONSENT_VERSION: str = "2026.1"
+
+    # LLM & Agentgateway Configuration (Spec 02)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    SUPABASE_DB_URL: str = os.getenv("SUPABASE_DB_URL", "")
+    VERTEX_AI_PROJECT: str = os.getenv("VERTEX_AI_PROJECT", "workkbot-prod-asia-south1")
+    VERTEX_AI_LOCATION: str = os.getenv("VERTEX_AI_LOCATION", "asia-south1")
+    DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "gemini-3.8-flash")
+    FALLBACK_MODEL: str = os.getenv("FALLBACK_MODEL", "gemini-3.7-flash")
+    LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     
     model_config = {
         "env_file": [
@@ -45,3 +55,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Ensure Gemini API keys are accessible to google.adk and google.genai
+if settings.GEMINI_API_KEY and not os.environ.get("GEMINI_API_KEY"):
+    os.environ["GEMINI_API_KEY"] = settings.GEMINI_API_KEY
+if settings.GOOGLE_API_KEY and not os.environ.get("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = settings.GOOGLE_API_KEY

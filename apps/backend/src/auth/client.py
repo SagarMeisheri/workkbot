@@ -29,6 +29,10 @@ _local_db: Dict[str, list] = {
     "profiles": [],
     "user_consents": [],
     "mcp_connections": [],
+    "conversations": [],
+    "adk_sessions": [],
+    "adk_events": [],
+    "ai_content_reports": [],
 }
 
 
@@ -192,6 +196,10 @@ class SupabaseAdminService:
         _local_db["profiles"] = [p for p in _local_db["profiles"] if p["id"] != user_id]
         _local_db["user_consents"] = [c for c in _local_db["user_consents"] if c["user_id"] != user_id]
         _local_db["mcp_connections"] = [m for m in _local_db["mcp_connections"] if m["user_id"] != user_id]
+        _local_db["conversations"] = [c for c in _local_db.get("conversations", []) if c["user_id"] != user_id]
+        _local_db["adk_sessions"] = [s for s in _local_db.get("adk_sessions", []) if s["user_id"] != user_id]
+        _local_db["adk_events"] = [e for e in _local_db.get("adk_events", []) if e.get("user_id") != user_id]
+        _local_db["ai_content_reports"] = [r for r in _local_db.get("ai_content_reports", []) if r["user_id"] != user_id]
 
         return {
             "success": True,

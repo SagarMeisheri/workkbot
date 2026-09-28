@@ -9,13 +9,11 @@ import { FloatingComposer } from "@/components/chat/floating-composer";
 import { SuggestionCloud } from "@/components/chat/suggestion-cloud";
 import { ConnectorsHubModal } from "@/components/chat/connectors-hub-modal";
 import { ConsentModal } from "@/components/auth/consent-modal";
+import { useAdkStreamingChat } from "@/components/chat/adk-chat-container";
+import { Reasoning } from "@/components/assistant-ui/reasoning";
+import { ActionBar } from "@/components/assistant-ui/action-bar";
+import { FlagModal } from "@/components/assistant-ui/flag-modal";
 import { supabase } from "@/lib/supabase";
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
 
 export default function WorkspacePage() {
   const [user, setUser] = useState<any>(null);
@@ -23,9 +21,23 @@ export default function WorkspacePage() {
   const [isCanvasOpen, setIsCanvasOpen] = useState(false);
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const [isConsentOpen, setIsConsentOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionId, setSessionId] = useState<string>(() => `sess_${Date.now()}`);
   const [threads, setThreads] = useState<string[]>([]);
   const [activeThread, setActiveThread] = useState<string>("New chat");
+
+  const {
+    messages,
+    setMessages,
+    isStreaming,
+    sendMessage,
+    flagModalState,
+    handleOpenFlagModal,
+    handleCloseFlagModal,
+  } = useAdkStreamingChat({
+    user,
+    sessionId,
+    onConsentRequired: () => setIsConsentOpen(true),
+  });
 
   useEffect(() => {
     // 1. Check live Supabase Session
@@ -114,64 +126,17 @@ export default function WorkspacePage() {
   }, []);
 
   const handleSendMessage = async (text: string, mode: "chat" | "cowork", model: string) => {
-    const userMsg: Message = {
-      id: `msg_${Date.now()}_u`,
-      role: "user",
-      content: text,
-    };
-    setMessages((prev) => [...prev, userMsg]);
     const threadTitle = text.slice(0, 30);
-    setActiveThread(threadTitle);
-    setThreads((prev) => (prev.includes(threadTitle) ? prev : [threadTitle, ...prev]));
-
-    const token = user?.access_token || localStorage.getItem("workkbot_token");
-
-    try {
-      const response = await fetch("http://localhost:8000/api/v1/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ message: text }),
-      });
-
-      if (response.status === 403) {
-        // DPDP Statutory Consent Required (VAL-01.4)
-        setIsConsentOpen(true);
-        const consentNeededMsg: Message = {
-          id: `msg_${Date.now()}_a`,
-          role: "assistant",
-          content: "Statutory DPDP consent required before processing queries. Please accept the statutory consent notice to proceed.",
-        };
-        setMessages((prev) => [...prev, consentNeededMsg]);
-        return;
-      }
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server returned ${response.status}`);
-      }
-
-      const data = await response.json();
-      const assistantMsg: Message = {
-        id: `msg_${Date.now()}_a`,
-        role: "assistant",
-        content: data.reply || "Response received from agent runtime.",
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: any) {
-      const errorMsg: Message = {
-        id: `msg_${Date.now()}_err`,
-        role: "assistant",
-        content: `Service communication error: ${err.message}. Ensure the Workkbot backend is running on port 8000.`,
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+    if (activeThread === "New chat") {
+      setActiveThread(threadTitle);
+      setThreads((prev) => (prev.includes(threadTitle) ? prev : [threadTitle, ...prev]));
     }
+    await sendMessage(text, mode, model);
   };
 
   const handleNewThread = () => {
     setMessages([]);
+    setSessionId(`sess_${Date.now()}`);
     setActiveThread("New chat");
   };
 
@@ -267,7 +232,7 @@ export default function WorkspacePage() {
                   onOpenConnectors={() => setIsConnectorsOpen(true)}
                 />
                 <SuggestionCloud
-                  onSelectPrompt={(p) => handleSendMessage(p, "chat", "gemini-2.0-flash")}
+                  onSelectPrompt={(p) => handleSendMessage(p, "chat", "gemini-3.8-flash")}
                   hasConnectedTools={Boolean(user)}
                 />
               </div>
@@ -281,15 +246,39 @@ export default function WorkspacePage() {
                       msg.role === "user" ? "items-end" : "items-start"
                     }`}
                   >
+                    {/* Gemini Reasoning / Thoughts */}
+                    {msg.role === "assistant" && msg.thought && (
+                      <Reasoning text={msg.thought} />
+                    )}
+
                     <div
-                      className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] ${
+                      className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] whitespace-pre-wrap ${
                         msg.role === "user"
                           ? "bg-primary text-primary-foreground rounded-br-xs"
                           : "bg-muted/70 text-foreground border border-border/60 rounded-bl-xs shadow-2xs"
                       }`}
                     >
-                      {msg.content}
+                      {msg.content || (isStreaming ? "Thinking..." : "")}
                     </div>
+
+                    {/* Action Bar with Apple 1.2 Moderation Flag & Regenerate */}
+                    {msg.content && (
+                      <ActionBar
+                        messageId={msg.id}
+                        content={msg.content}
+                        role={msg.role}
+                        onFlag={
+                          msg.role === "assistant"
+                            ? () => handleOpenFlagModal(msg.id, msg.content)
+                            : undefined
+                        }
+                        onRegenerate={
+                          msg.role === "assistant"
+                            ? () => sendMessage("Regenerate response with additional details", "chat", "gemini-3.8-flash", msg.checkpointId)
+                            : undefined
+                        }
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -339,6 +328,16 @@ export default function WorkspacePage() {
         isOpen={isConsentOpen}
         onConsentSuccess={() => setIsConsentOpen(false)}
         user={user}
+      />
+
+      {/* 5. Apple App Store Guideline 1.2 Content Flag Modal */}
+      <FlagModal
+        isOpen={flagModalState.isOpen}
+        onClose={handleCloseFlagModal}
+        messageId={flagModalState.messageId}
+        contentSnapshot={flagModalState.content}
+        sessionId={sessionId}
+        token={user?.access_token}
       />
     </div>
   );

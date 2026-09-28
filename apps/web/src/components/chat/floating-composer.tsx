@@ -17,7 +17,7 @@ export function FloatingComposer({
 }: FloatingComposerProps) {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<"chat" | "cowork">("chat");
-  const [model, setModel] = useState<"gemini-2.0-flash" | "gemini-2.0-pro">("gemini-2.0-flash");
+  const [model, setModel] = useState<"gemini-3.8-flash" | "gemini-3.7-flash">("gemini-3.8-flash");
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
@@ -64,33 +64,33 @@ export function FloatingComposer({
         <div className="absolute bottom-14 right-20 w-52 p-1.5 rounded-xl border border-border bg-popover shadow-xl z-50 text-xs text-foreground animate-in fade-in duration-150">
           <button
             onClick={() => {
-              setModel("gemini-2.0-flash");
+              setModel("gemini-3.8-flash");
               setShowModelMenu(false);
             }}
             className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition-colors ${
-              model === "gemini-2.0-flash" ? "bg-accent font-medium" : "hover:bg-accent/60"
+              model === "gemini-3.8-flash" ? "bg-accent font-medium" : "hover:bg-accent/60"
             }`}
           >
             <div>
-              <p>Gemini 2.0 Flash</p>
-              <p className="text-[10px] text-muted-foreground">Low latency • General tasks</p>
+              <p>Gemini 3.8 Flash</p>
+              <p className="text-[10px] text-muted-foreground">Thinking reasoning • Ultra-fast</p>
             </div>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Fast</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Default</span>
           </button>
           <button
             onClick={() => {
-              setModel("gemini-2.0-pro");
+              setModel("gemini-3.7-flash");
               setShowModelMenu(false);
             }}
             className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition-colors ${
-              model === "gemini-2.0-pro" ? "bg-accent font-medium" : "hover:bg-accent/60"
+              model === "gemini-3.7-flash" ? "bg-accent font-medium" : "hover:bg-accent/60"
             }`}
           >
             <div>
-              <p>Gemini 2.0 Pro</p>
-              <p className="text-[10px] text-muted-foreground">Complex reasoning • Code</p>
+              <p>Gemini 3.7 Flash</p>
+              <p className="text-[10px] text-muted-foreground">General tasks • High throughput</p>
             </div>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Pro</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Fast</span>
           </button>
         </div>
       )}
@@ -155,7 +155,7 @@ export function FloatingComposer({
               className="h-8 px-2.5 rounded-full border border-border/60 hover:bg-accent text-xs font-medium flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-500" />
-              <span>{model === "gemini-2.0-flash" ? "Flash" : "Pro"}</span>
+              <span>{model === "gemini-3.8-flash" ? "3.8 Flash" : "3.7 Flash"}</span>
               <ChevronDown className="w-3 h-3 text-muted-foreground" />
             </button>
 

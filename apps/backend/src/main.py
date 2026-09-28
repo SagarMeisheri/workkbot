@@ -16,6 +16,7 @@ from src.auth.client import supabase_admin, _local_db
 from src.routers.auth import router as auth_router
 from src.routers.consent import router as consent_router
 from src.routers.account import router as account_router
+from src.chat.router import router as chat_router
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -36,6 +37,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(consent_router)
 app.include_router(account_router)
+app.include_router(chat_router)
 
 
 @app.get("/healthz", tags=["health"])
