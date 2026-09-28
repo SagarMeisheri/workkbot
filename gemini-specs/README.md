@@ -8,6 +8,7 @@ Per the [spec-driven-development](file:///Users/sagarmeisheri/.gemini/config/ski
 - **[constitution/mission.md](file:///Users/sagarmeisheri/Apps/workkbot/gemini-specs/constitution/mission.md)**: Vision, personas, product scope, and non-negotiable operational boundaries.
 - **[constitution/techstack.md](file:///Users/sagarmeisheri/Apps/workkbot/gemini-specs/constitution/techstack.md)**: Single FastAPI backend on Google Cloud Run, Agentgateway 1.5.x, Google Vertex AI, Google Cloud Build, Supabase unified platform, and assistant-ui rules.
 - **[constitution/roadmap.md](file:///Users/sagarmeisheri/Apps/workkbot/gemini-specs/constitution/roadmap.md)**: Living execution sequence with Gantt milestones for GCP deployment from Day 1.
+- **[spec-live-integration-mandate.md](file:///Users/sagarmeisheri/Apps/workkbot/gemini-specs/spec-live-integration-mandate.md)**: Non-Negotiable Zero-Mock Law, live framework boundaries, and testing protocols.
 
 ---
 
