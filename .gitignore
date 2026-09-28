@@ -69,3 +69,4 @@ scratch/
 
 .agents/
 skills-lock.json
+.next/

@@ -1,0 +1,21 @@
+[project]
+name = "workkbot-monorepo"
+version = "0.1.0"
+description = "Workkbot 2.0 Monorepo"
+requires-python = ">=3.11"
+dependencies = [
+    "workkbot-backend",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+]
+
+[tool.uv.sources]
+workkbot-backend = { workspace = true }
+
+[tool.uv.workspace]
+members = ["apps/backend"]

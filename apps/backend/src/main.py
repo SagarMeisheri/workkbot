@@ -1,4 +1,11 @@
-"""Workkbot Cloud Run Backend Entrypoint."""
+import sys
+from pathlib import Path
+
+# Ensure backend root is on sys.path when invoked directly as a script
+backend_root = str(Path(__file__).resolve().parent.parent)
+if backend_root not in sys.path:
+    sys.path.insert(0, backend_root)
+
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -71,3 +78,9 @@ async def chat_endpoint(
         "user_id": current_user.id,
         "org_id": current_user.org_id,
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)
+

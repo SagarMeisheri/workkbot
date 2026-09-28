@@ -21,23 +21,26 @@ Every code modification, feature addition, or architectural refactor in Workkbot
 ## 2. Command Palette (Fast Execution Guide)
 
 ### Python Backend (`apps/backend`)
-- **Package Manager**: Use `uv` strictly. Do **not** use raw global `pip`.
-- **Virtual Environment**: `.venv/bin/python` (Python 3.11+).
-- **Run Tests**:
+- **Package Manager**: Use `uv` strictly.
+- **Sync Dependencies**:
   ```bash
-  uv run --python .venv/bin/python pytest -v apps/backend/tests
+  uv sync --extra dev
+  ```
+- **Run Tests (from Root)**:
+  ```bash
+  uv run pytest
   ```
 - **Run Specific Test**:
   ```bash
-  uv run --python .venv/bin/python pytest -v apps/backend/tests/test_reviewer_login.py
+  uv run pytest apps/backend/tests/test_reviewer_login.py
   ```
-- **Install Dependencies**:
+- **Start Backend Dev Server (from Root)**:
   ```bash
-  uv pip install -e 'apps/backend[dev]' --python .venv/bin/python
+  uv run uvicorn src.main:app --app-dir apps/backend --reload --port 8000
   ```
-- **Start Backend Dev Server**:
+- **Direct Script Execution**:
   ```bash
-  uv run --python .venv/bin/python uvicorn src.main:app --app-dir apps/backend --reload --port 8000
+  cd apps/backend && uv run python src/main.py
   ```
 
 ### Web Frontend (`apps/web`)

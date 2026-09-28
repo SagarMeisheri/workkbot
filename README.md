@@ -72,30 +72,40 @@ workkbot/
 - **uv**: Fast Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - **pnpm**: Monorepo package manager (`corepack enable pnpm`)
 
-### 1. Clone & Install
+### 1. Python Backend Setup (uv)
+From the repository root:
 ```bash
-git clone https://github.com/SagarMeisheri/workkbot.git
-cd workkbot
+# Sync dependencies and development tools (pytest, etc.)
+uv sync --extra dev
 
-# Install Python backend dependencies using uv
-uv pip install -e 'apps/backend[dev]' --python .venv/bin/python
+# Run automated test suite (14 checks for VAL-01.1 through VAL-01.9)
+uv run pytest
 
-# Install Node dependencies
+# Launch FastAPI Backend Dev Server on Port 8000
+uv run uvicorn src.main:app --app-dir apps/backend --reload --port 8000
+```
+
+*(Alternatively, if working inside `apps/backend/`)*:
+```bash
+cd apps/backend
+uv sync --extra dev
+uv run pytest
+uv run uvicorn src.main:app --reload --port 8000
+```
+
+### 2. Web Frontend Setup (pnpm)
+If `pnpm` is not yet installed on your system:
+```bash
+npm install -g pnpm
+# or: brew install pnpm
+```
+
+From the repository root:
+```bash
+# Install workspace dependencies
 pnpm install
-```
 
-### 2. Run Automated Verification Tests
-```bash
-# Run backend validation test suite (14 checks for VAL-01.1 through VAL-01.9)
-uv run --python .venv/bin/python pytest -v apps/backend/tests
-```
-
-### 3. Launch Development Servers
-```bash
-# Terminal 1: Python FastAPI Backend (Port 8000)
-uv run --python .venv/bin/python uvicorn src.main:app --app-dir apps/backend --reload --port 8000
-
-# Terminal 2: Next.js 15 Web Workspace (Port 3000)
+# Launch Next.js 15 dev server on Port 3000
 pnpm --filter @workkbot/web dev
 ```
 
