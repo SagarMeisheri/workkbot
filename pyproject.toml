@@ -19,3 +19,11 @@ workkbot-backend = { workspace = true }
 
 [tool.uv.workspace]
 members = ["apps/backend"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["apps/backend/tests"]
+pythonpath = ["apps/backend/src"]
+markers = [
+    "live_gemini: Tests making real outbound network calls to Google Gemini API",
+]

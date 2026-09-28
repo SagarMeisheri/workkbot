@@ -21,6 +21,7 @@ from src.auth.client import supabase_admin, _local_db
 from src.routers.consent import DPDP_DISCLOSURES_EN
 
 
+@pytest.mark.live_gemini
 @pytest.mark.asyncio
 async def test_live_e2e_spec_01_and_spec_02_pipeline():
     """Executes the complete end-to-end integration lifecycle for Spec 01 and Spec 02."""
