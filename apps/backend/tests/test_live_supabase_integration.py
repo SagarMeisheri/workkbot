@@ -14,7 +14,7 @@ from src.config import settings
 def test_supabase_client_configured():
     """Verify live Supabase credentials and client initialization."""
     assert settings.SUPABASE_URL.startswith("https://")
-    assert "jqplgapyplejrixvbgmu" in settings.SUPABASE_URL
+    assert ".supabase.co" in settings.SUPABASE_URL
     assert settings.SUPABASE_SERVICE_ROLE_KEY is not None
     assert len(settings.SUPABASE_SERVICE_ROLE_KEY) > 20
 

@@ -9,11 +9,11 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", "8000"))
     
-    # Supabase credentials
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "http://127.0.0.1:54321")
-    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "dev-anon-key-workkbot-local")
-    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "dev-service-role-key-workkbot-local")
-    SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-bytes-long")
+    # Supabase credentials (loaded from .env in development, or Google Cloud Secret Manager in Cloud Run)
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+    SUPABASE_JWT_SECRET: str = ""
     
     # Reviewer Sandbox (Apple Guideline 2.1)
     REVIEWER_EMAIL: str = "apple-reviewer@workkbot.in"
