@@ -70,3 +70,6 @@ scratch/
 .agents/
 skills-lock.json
 .next/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
