@@ -207,14 +207,37 @@ No pull request, feature completion, or specification sign-off is accepted if:
 
 ---
 
-## 5. Compliance & Implementation Checklist
+## 5. Localhost vs. Cloud Run Execution Matrix
+
+The Zero-Mock Architecture Law distinguishes between **physical deployment target** and **system live-ness**:
+- **Localhost Testing is 100% Zero-Mock Compliant** when connected to live cloud backbones (live Supabase Mumbai `ap-south-1`, live Vertex AI Gemini 2.0 Flash in `asia-south1`, and live GCP SDKs with Google Application Default Credentials).
+- **Remote Cloud Run is Only Required** when validating network edge topologies, Google Cloud Armor WAF rules, container multi-pod routing, or external App Store reviewer access.
+
+| Specification | Execution Target | Localhost Setup | Cloud Run Mandatory Rationale |
+|---|:---:|---|---|
+| **Spec 00: Constitution & Scaffold** | `Localhost` & `Staging Cloud Run` | Turborepo, local Next.js 15, local FastAPI | Dry-run Cloud Build container compile & deploy. |
+| **Spec 01: Enterprise Identity & DPDP** | `Localhost (Zero-Mock)` | Next.js (`:3000`), FastAPI (`:8000`) | Live GoTrue OAuth, live Supabase Vault (`pgsodium`). |
+| **Spec 02: Core Chat & ADK 2.0** | `Localhost (Zero-Mock)` | In-process ADK Runner, HTTP/2 SSE | Live Vertex AI Gemini 2.0 Flash, live Supabase sessions. |
+| **Spec 03: DPDP PII & Erasure** | `Localhost (Zero-Mock)` | Presidio regex + Google Cloud DLP API via ADC | Live Cloud DLP in `asia-south1`, live Supabase DSR RPC. |
+| **Spec 04: MCP Tools & In-Chat HITL** | `Localhost (Zero-Mock)` | Agentgateway on `127.0.0.1:8080/mcp` | Live Supabase Vault token decryption, live audit logging. |
+| **Spec 05: Dynamic MCP Hub** | `Localhost (Zero-Mock)` | OpenAPI virtualizer, Generative UI | Live Supabase Realtime WebSocket broadcast from Mumbai. |
+| **Spec 06: Tri-Layer Memory & Vector** | `Localhost (Zero-Mock)` | Vertex `text-embedding-004` via ADC | Live Supabase `pgvector` HNSW cosine index (`<=>`). |
+| **Spec 07: Sandboxed Code Artifacts** | `Localhost` & `Staging Cloud Run` | Local container/microVM, GCS V4 signed URLs | Dry-run staging deploy to verify subdomain iframe CSP. |
+| **Spec 08: Skills & Workflows** | `Localhost (Zero-Mock)` | Local markdown skills, SequentialAgent | Live Google Cloud Monitoring metric emission (`token_cost_inr`). |
+| **Spec 09: Admin Console & BigQuery** | `Localhost (Zero-Mock)` | `/admin` dashboard, Admin CLI (`react-ink`)| Live BigQuery 7-yr audit dataset in `asia-south1` via ADC. |
+| **Spec 10: Native Mobile (Expo)** | `Production Cloud Run Mandatory` | Expo SDK 52 simulator / TestFlight | **Hard Stop**: Cloud Armor WAF geofence (`origin: 'IN'`), VPC firewall (`169.254.169.254`), and Apple Reviewer credentials. |
+
+---
+
+## 6. Compliance & Implementation Checklist
 
 Before declaring any spec complete:
+- [ ] Spec's 4-Tier Validation Scorecard fully satisfied (Unit, Live, UI/E2E, and Manual).
 - [ ] Live Supabase tables migrated and RLS policies verified.
 - [ ] Live Supabase Vault RPCs confirmed storing and decrypting tokens.
-- [ ] Live Cloud Run backend communicating over loopback with Agentgateway.
 - [ ] Live Vertex AI streaming verified over HTTP/2 SSE.
 - [ ] Live Cloud DLP masking verified on prompt payloads.
 - [ ] Live in-chat HITL confirmation confirmed functional in assistant-ui.
 - [ ] Apple Guidelines 1.2 (Report AI), 2.1 (Reviewer Sandbox), and 5.1.1 (In-App Deletion) confirmed against live database.
 - [ ] Zero mock data or in-memory dictionaries present in codebase.
+

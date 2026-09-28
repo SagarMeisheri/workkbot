@@ -124,16 +124,42 @@ An interactive **Plus (`+`) Icon** is positioned directly inside the bottom-left
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`) and FastAPI (`localhost:8000`) running locally.
+- **Live Cloud Boundaries**: Live Supabase Mumbai (`ap-south-1`) for GoTrue Auth, domain whitelist auth hook, Vault (`pgsodium`), and DPDP consent tables. No mocks permitted.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-01.1** | Email with unapproved domain (`user@gmail.com`) is rejected by Supabase Auth hook | `pytest apps/backend/tests/test_auth_domain_whitelist.py` | [ ] |
-| **VAL-01.2** | Google Workspace OAuth login succeeds requesting only basic identity (`openid`, `email`, `profile`) | `pytest apps/backend/tests/test_google_oauth_scopes.py` | [ ] |
-| **VAL-01.3** | Reviewer credentials log in cleanly and access isolated demo organization (Apple 2.1) | `curl -f -X POST https://$BACKEND_URL/api/v1/auth/reviewer-login` | [ ] |
-| **VAL-01.4** | First-time user cannot call `/chat` without signing DPDP statutory consent (Apple 5.1.2i) | `pytest apps/backend/tests/test_dpdp_consent_gate.py` | [ ] |
-| **VAL-01.5** | In-chat `+` icon opens tool popover and connects Google Workspace MCP via OAuth | `pnpm --filter web test:e2e tests/e2e/tool-popover.spec.ts` | [ ] |
-| **VAL-01.6** | In-chat `+` icon connects Zoho Workplace MCP via `accounts.zoho.in` and stores token in Vault | `pytest apps/backend/tests/test_zoho_oauth_vault.py` | [ ] |
-| **VAL-01.7** | Multi-tenant isolation verified: User from Org A cannot access Org B MCP connections or secrets | `pytest apps/backend/tests/test_mcp_tenant_isolation.py` | [ ] |
-| **VAL-01.8** | Token delegation from Supabase Vault to Agentgateway securely injects upstream bearer token | `pytest apps/backend/tests/test_agentgateway_token_delegation.py` | [ ] |
-| **VAL-01.9** | In-app account deletion purges user, vault secrets, and sessions completely (Apple 5.1.1) | `pytest apps/backend/tests/test_account_deletion_flow.py` | [ ] |
+| **VAL-01.1** | Email with unapproved domain (`user@gmail.com`) is rejected with 403 Forbidden | `uv run pytest apps/backend/tests/test_auth_domain_whitelist.py` | [ ] |
+| **VAL-01.2** | Google OAuth scope validator strictly permits only basic identity (`openid`, `email`, `profile`) | `uv run pytest apps/backend/tests/test_google_oauth_scopes.py` | [ ] |
+| **VAL-01.3** | Multi-tenant isolation verified: Org A cannot read Org B MCP connections or secrets | `uv run pytest apps/backend/tests/test_mcp_tenant_isolation.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-01.4** | Reviewer credentials (`apple-reviewer@workkbot.in`) authenticate against live Supabase Auth & demo tenant (Apple 2.1) | `uv run pytest apps/backend/tests/test_reviewer_login.py` | [ ] |
+| **VAL-01.5** | First-time unconsented user is blocked from chat stream until DPDP consent is signed (Apple 5.1.2i) | `uv run pytest apps/backend/tests/test_dpdp_consent_gate.py` | [ ] |
+| **VAL-01.6** | Zoho OAuth code exchange encrypts tokens in Supabase Vault (`pgsodium`) and verifies retrieval | `uv run pytest apps/backend/tests/test_zoho_oauth_vault.py` | [ ] |
+| **VAL-01.7** | Token delegation retrieves decrypted Vault secret and provisions bearer headers for Agentgateway | `uv run pytest apps/backend/tests/test_agentgateway_token_delegation.py` | [ ] |
+| **VAL-01.8** | Atomic account deletion cascades through live Supabase Auth, profiles, and Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/test_account_deletion_flow.py` | [ ] |
+| **VAL-01.9** | End-to-end live pipeline verifies Reviewer Auth -> DPDP Consent -> Vault -> Account Deletion | `uv run pytest apps/backend/tests/test_live_e2e_spec_01_and_02.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-01.10** | `/login` page renders Google Workspace SSO and App Store Reviewer Mode accordion | `pnpm --filter @workkbot/web test:e2e tests/e2e/login.spec.ts` | [ ] |
+| **VAL-01.11** | Unauthenticated sidebar footer renders `-> Sign in`; authenticated footer renders user avatar | `pnpm --filter @workkbot/web test:e2e tests/e2e/sidebar-auth-footer.spec.ts` | [ ] |
+| **VAL-01.12** | First-time login triggers blocking bilingual DPDP Consent Modal (`ConsentModal`) with Hindi/English toggle | `pnpm --filter @workkbot/web test:e2e tests/e2e/consent-modal.spec.ts` | [ ] |
+| **VAL-01.13** | Connectors Hub Modal opens via `+ -> Connectors >`, switches `[ Yours \| Discover ]`, and renders connector cards | `pnpm --filter @workkbot/web test:e2e tests/e2e/connectors-hub.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **App Store Reviewer Mode**: Open `http://localhost:3000/login`, expand "App Store Reviewer Mode" accordion, click **"Log in as Apple Reviewer"**. Confirm immediate redirect to `/chat` without Google SSO or MFA.
+2. **DPDP Bilingual Interstitial**: Open incognito tab, log in with a fresh test account. Confirm blocking DPDP modal appears. Toggle language to "हिन्दी", confirm statutory items render in Hindi. Click "I Agree & Continue", confirm modal dismisses.
+3. **Connectors Hub Modal**: In `/chat`, click `+` on the floating composer, select `Connectors >`. Switch between `Discover` and `Yours` tabs. Confirm seed connectors (Google Workspace, Zoho Workplace) render with badges.
+4. **In-App Account Deletion (Apple 5.1.1)**: Click user avatar in sidebar footer -> click **[Delete Account & Purge Memory]**. Confirm prompt -> verify redirect to `/login`. In Supabase Dashboard, verify user is gone.
+

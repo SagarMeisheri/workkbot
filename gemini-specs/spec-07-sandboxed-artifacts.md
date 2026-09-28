@@ -95,14 +95,37 @@ Workkbot eliminates these risks by routing all artifact generation, execution, s
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)` & `Staging Cloud Run (Dry-Run)`
+- **Localhost Validation**: Local microVM / containerized Python runner, GCS V4 signed URL generation via Google Application Default Credentials, and Canvas split UI in Next.js (`localhost:3000`).
+- **Cloud Run Staging Validation**: Recommended dry-run deploy to test multi-container Docker pod, isolated subdomain iframe CSP (`artifacts.workkbot.in`), and cross-origin sandboxing before proceeding to Admin & Mobile.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-07.1** | Executed script cannot access host filesystem, environment variables, or private network | `pytest apps/backend/tests/test_sandbox_security.py` | [ ] |
-| **VAL-07.2** | Sandbox container is destroyed within 180 seconds of completion | `pytest apps/backend/tests/test_sandbox_lifecycle.py` | [ ] |
-| **VAL-07.3** | Generated artifact uploaded to GCS and returns valid V4 signed URL | `pytest apps/backend/tests/test_gcs_signed_urls.py` | [ ] |
-| **VAL-07.4** | Expired GCS V4 signed URL returns HTTP 403 Forbidden | `pytest apps/backend/tests/test_signed_url_expiry.py` | [ ] |
-| **VAL-07.5** | Artifact iframe cannot access parent window's `localStorage` or auth cookies | `pnpm --filter web test:e2e tests/e2e/artifact-sandbox.spec.ts` | [ ] |
-| **VAL-07.6** | Filenames with path traversal (`../../app/server.js`) are safely sanitized (CVE-2026-34371) | `pytest apps/backend/tests/test_path_sanitizer.py` | [ ] |
-| **VAL-07.7** | Mobile WebView renders artifacts securely without native bridge exposure (Apple 2.5.2) | `pnpm --filter mobile test:e2e tests/e2e/artifact-webview.spec.ts` | [ ] |
+| **VAL-07.1** | Filename path sanitizer rejects traversal vectors (`../../app/server.js`) (CVE-2026-34371) | `uv run pytest apps/backend/tests/test_path_sanitizer.py` | [ ] |
+| **VAL-07.2** | Script security: Process executes within isolated sandbox, blocking host filesystem & env | `uv run pytest apps/backend/tests/test_sandbox_security.py` | [ ] |
+| **VAL-07.3** | Lifecycle: Sandbox container or microVM terminates automatically within 180s | `uv run pytest apps/backend/tests/test_sandbox_lifecycle.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-07.4** | Generated plot/HTML uploads to live Google Cloud Storage in `asia-south1` with V4 signed URL | `uv run pytest -m live_gcs apps/backend/tests/test_gcs_signed_urls.py` | [ ] |
+| **VAL-07.5** | Expired GCS V4 signed URL returns HTTP 403 Forbidden | `uv run pytest -m live_gcs apps/backend/tests/test_signed_url_expiry.py` | [ ] |
+| **VAL-07.6** | Mobile WebView renders artifacts securely without native bridge exposure (Apple 2.5.2) | `uv run pytest apps/backend/tests/test_mobile_webview_sandbox.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-07.7** | Toggling mode pill to `Cowork` or clicking `↗` splits layout into Chat + Canvas workspace | `pnpm --filter @workkbot/web test:e2e tests/e2e/canvas-split.spec.ts` | [ ] |
+| **VAL-07.8** | Sandboxed artifact iframe cannot access parent window's `localStorage` or auth cookies | `pnpm --filter @workkbot/web test:e2e tests/e2e/artifact-sandbox.spec.ts` | [ ] |
+| **VAL-07.9** | Code execution error displays clean terminal error card inside canvas with "Fix with AI" action | `pnpm --filter @workkbot/web test:e2e tests/e2e/canvas-error-recovery.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Matplotlib Visual Generation**: In `http://localhost:3000/chat`, prompt: *"Generate a sales revenue line chart for Q1-Q4 in Python matplotlib"*. Confirm assistant-ui automatically triggers the canvas split `↗` on the right side.
+2. **Canvas Split & Iframe Inspection**: Verify chat remains functional on the left side while the chart renders inside the sandboxed iframe on the right. In browser DevTools, inspect the iframe tag and verify `sandbox="allow-scripts"` and that `window.parent.localStorage` throws a SecurityError.
+3. **Download Artifact**: Click the **Download (PNG)** button in the top-right of the canvas header. Confirm file downloads cleanly with valid image metadata.
+

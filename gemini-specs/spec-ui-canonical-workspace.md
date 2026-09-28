@@ -363,15 +363,43 @@ The UI components will be organized under the following modular paths:
 
 ---
 
-## 7. Validation Scorecard
+## 7. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`) and React Native Expo SDK 52 simulator.
+- **Live Cloud Boundaries**: Live Supabase Mumbai (`ap-south-1`) for authentication state, profile first name lookup (`public.profiles`), and live incident reporting (`public.ai_content_reports`). No hardcoded mock names or synthetic thread arrays permitted.
+
+---
+
+### **Tier 1: Component Unit & Style Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-UI.1** | Empty thread renders centered hero `"How can I help you today?"` with suggestion chips | `pnpm --filter web test:e2e tests/e2e/landing-state.spec.ts` | [ ] |
-| **VAL-UI.2** | Authenticated user sees `"✳ Back at it, [name]"` with serif font and sunburst icon | `pnpm --filter web test:e2e tests/e2e/returning-hero.spec.ts` | [ ] |
-| **VAL-UI.3** | Clicking `+` opens popover with all 8 items and keyboard shortcuts | `pnpm --filter web test:e2e tests/e2e/composer-popover.spec.ts` | [ ] |
-| **VAL-UI.4** | Toggling `[Chat \| Cowork]` switches state and triggers Canvas split `↗` | `pnpm --filter web test:e2e tests/e2e/mode-toggle.spec.ts` | [ ] |
-| **VAL-UI.5** | Model selector pill toggles between Vertex AI Flash and Pro tiers | `pnpm --filter web test:e2e tests/e2e/model-selector.spec.ts` | [ ] |
-| **VAL-UI.6** | Unauthenticated sidebar footer displays `-> Sign in` opening Google OAuth | `pnpm --filter web test:e2e tests/e2e/sidebar-signin.spec.ts` | [ ] |
-| **VAL-UI.7** | Mobile client renders responsive layout with native bottom sheet `+` menu | `pnpm --filter mobile test:e2e tests/e2e/mobile-composer.spec.ts` | [ ] |
-| **VAL-UI.8** | Message action bar includes Apple Guideline 1.2 Flag/Report action on every bubble | `pnpm --filter web test:e2e tests/e2e/message-flagging.spec.ts` | [ ] |
+| **VAL-UI.1** | Component typecheck and Tailwind CSS token build passes without circular dependencies | `pnpm --filter @workkbot/web typecheck` | [ ] |
+| **VAL-UI.2** | Plus popover menu items adhere to accessibility specifications and keyboard navigation | `pnpm --filter @workkbot/web test tests/unit/composer-plus-popover.test.tsx` | [ ] |
+
+### **Tier 2: Zero-Mock Live Wire Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-UI.3** | Live Supabase session injects user first name into State 2 hero greeting (`Back at it, [name]`) | `pnpm --filter @workkbot/web test:e2e tests/e2e/live-hero-greeting.spec.ts` | [ ] |
+| **VAL-UI.4** | Submitting Apple 1.2 Flag Modal writes live incident report to Supabase `ai_content_reports` | `pnpm --filter @workkbot/web test:e2e tests/e2e/live-ai-flagging.spec.ts` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-UI.5** | Empty unauthenticated thread renders centered hero *"How can I help you today?"* and suggestion chips | `pnpm --filter @workkbot/web test:e2e tests/e2e/landing-state.spec.ts` | [ ] |
+| **VAL-UI.6** | Authenticated user sees *"✳ Back at it, [name]"* with serif font and warm sunburst icon | `pnpm --filter @workkbot/web test:e2e tests/e2e/returning-hero.spec.ts` | [ ] |
+| **VAL-UI.7** | Clicking `+` opens hierarchical popover with all 8 items and keyboard shortcuts (`⌘U`) | `pnpm --filter @workkbot/web test:e2e tests/e2e/composer-popover.spec.ts` | [ ] |
+| **VAL-UI.8** | Toggling `[Chat \| Cowork]` switches state and triggers Canvas split `↗` | `pnpm --filter @workkbot/web test:e2e tests/e2e/mode-toggle.spec.ts` | [ ] |
+| **VAL-UI.9** | Model selector pill toggles between Vertex AI Gemini Flash and Pro tiers | `pnpm --filter @workkbot/web test:e2e tests/e2e/model-selector.spec.ts` | [ ] |
+| **VAL-UI.10** | Mobile client renders responsive layout with native bottom sheet `+` menu | `pnpm --filter @workkbot/mobile test:e2e tests/e2e/mobile-composer.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **State 1 (Cold / Unauthenticated)**: Open incognito tab to `http://localhost:3000`. Confirm centered hero *"How can I help you today?"* renders in bold sans typography with staggered prompt chips below. Confirm sidebar footer displays `-> Sign in`.
+2. **State 2 (Authenticated)**: Log in as reviewer or employee. Confirm hero greeting transitions smoothly to *"✳ Back at it, [firstName]"* with elegant serif typography and brand glyph. Confirm sidebar footer displays user avatar and email.
+3. **Floating Composer & Plus Popover**:
+   - Press `+` button in composer: confirm dropdown displays 8 items with clean category dividers.
+   - Press `⌘U`: confirm native file picker opens (`Add files or photos`).
+   - Click `Connectors >`: confirm Connectors Hub Modal opens centered over the workspace.
+4. **Dual Mode Toggle**: Click `Cowork` (or `Canvas ↗`). Verify screen splits into 50/50 dual pane (Left: Chat stream, Right: Artifact Canvas).
+5. **Apple 1.2 Report Flag**: Hover over any AI message bubble, click Flag icon. Confirm dialog opens with reason radio buttons and comments field. Submit and confirm toast appears.
+

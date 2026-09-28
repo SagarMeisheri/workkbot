@@ -109,16 +109,37 @@ workkbot/
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)` & `Staging Cloud Run (Dry-Run)`
+- **Localhost Validation**: Turborepo package builds, Next.js 15 dev server, local backend connecting to live Supabase Mumbai (`ap-south-1`).
+- **Cloud Run Validation**: Google Cloud Build container compilation and dry-run deployment to Cloud Run in `asia-south1`.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-00.1** | `pnpm install` installs all workspace packages cleanly | `pnpm install` | [ ] |
-| **VAL-00.2** | Turborepo pipeline builds shared packages without circular dependencies | `pnpm turbo run build` | [ ] |
-| **VAL-00.3** | Supabase CLI starts up local stack (Postgres, Auth, Storage, Realtime, Vault) | `npx supabase start && npx supabase status` | [ ] |
-| **VAL-00.4** | Python backend connects to local Supabase Postgres and verifies pgvector | `cd apps/backend && pytest tests/test_db_connection.py` | [ ] |
-| **VAL-00.5** | Google Cloud Build pipeline compiles containers and executes dry-run deploy | `gcloud builds submit --config=infra/gcp/cloudbuild.yaml --substitutions=_DRY_RUN=true` | [ ] |
-| **VAL-00.6** | Cloud Run service in `asia-south1` boots and passes health check | `curl -f https://$BACKEND_URL/healthz` | [ ] |
-| **VAL-00.7** | Agentgateway sidecar container boots and responds to loopback health probe | `curl -f http://127.0.0.1:8080/health` | [ ] |
-| **VAL-00.8** | Cloud Run VPC firewall rule successfully drops egress calls to `169.254.169.254` | `pytest apps/backend/tests/test_metadata_ssrf_blocked.py` | [ ] |
-| **VAL-00.9** | Mobile app builds on Expo SDK 52 without hermes or native crash | `cd apps/mobile && npx expo export --platform ios` | [ ] |
+| **VAL-00.1** | `pnpm install` installs all workspace packages cleanly without peer-dep errors | `pnpm install` | [ ] |
+| **VAL-00.2** | Turborepo pipeline builds all shared packages without circular dependencies | `pnpm turbo run build` | [ ] |
+| **VAL-00.3** | Shared TypeScript schemas compile cleanly across `packages/shared-types` | `pnpm --filter @workkbot/shared-types typecheck` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-00.4** | Python backend connects to live Supabase Mumbai and verifies `pgvector` & Vault | `uv run pytest apps/backend/tests/test_live_supabase_integration.py` | [ ] |
+| **VAL-00.5** | Agentgateway sidecar daemon responds to loopback health probe | `curl -f http://127.0.0.1:8080/health` | [ ] |
+| **VAL-00.6** | Cloud Run VPC firewall rule actively drops egress requests to `169.254.169.254` | `uv run pytest apps/backend/tests/test_metadata_ssrf_blocked.py` | [ ] |
+| **VAL-00.7** | Google Cloud Build pipeline compiles containers and executes dry-run deploy | `gcloud builds submit --config=infra/gcp/cloudbuild.yaml --substitutions=_DRY_RUN=true` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-00.8** | Next.js 15 web app typechecks and builds without SSR hydration errors | `pnpm --filter @workkbot/web typecheck && pnpm --filter @workkbot/web build` | [ ] |
+| **VAL-00.9** | Expo SDK 52 mobile project exports cleanly for iOS without hermes crash | `cd apps/mobile && npx expo export --platform ios` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Local Web Shell**: Run `pnpm --filter @workkbot/web dev`, navigate to `http://localhost:3000`. Confirm clean page render, dark mode background token `#0d0f12`, and zero React hydration warnings in DevTools console.
+2. **Local Backend Shell**: Run `uv run uvicorn src.main:app --app-dir apps/backend --port 8000`, open `http://localhost:8000/healthz`. Confirm HTTP 200 `{"status": "ok", "frameworks": 5}`.
+3. **Cloud Run Health**: After dry-run staging deployment, curl the staging Cloud Run endpoint to confirm FastAPI and Agentgateway multi-container startup.
+

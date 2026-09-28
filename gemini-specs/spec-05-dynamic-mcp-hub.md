@@ -95,14 +95,40 @@ Workkbot eliminates these vulnerabilities by routing all dynamic connections, vi
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`), FastAPI (`localhost:8000`), and Agentgateway (`127.0.0.1:8080`) on developer machine.
+- **Live Cloud Boundaries**:
+  - Live Supabase Realtime (`postgres_changes` / Broadcast) in Mumbai (`ap-south-1`) sending live toast notifications to browser.
+  - Live Firebase Cloud Messaging (FCM) admin SDK dispatching push notifications.
+  - Real Agentgateway OpenAPI virtualization compiler with anti-SSRF filters. No synthetic notification arrays permitted.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-05.1** | User completes OAuth flow; available tools populate dynamically in Supabase DB | `pytest apps/backend/tests/test_mcp_oauth_flow.py` | [ ] |
-| **VAL-05.2** | Disconnected account drops tokens from Supabase Vault and removes tools from session | `pytest apps/backend/tests/test_mcp_disconnect.py` | [ ] |
-| **VAL-05.3** | Importing OpenAPI spec generates functional MCP tools via Agentgateway | `pytest apps/backend/tests/test_openapi_virtualization.py` | [ ] |
-| **VAL-05.4** | SSRF validator blocks attempts to connect to `169.254.169.254` and `::ffff:127.0.0.1` | `pytest apps/backend/tests/test_ssrf_validator.py` | [ ] |
-| **VAL-05.5** | Inserting row in `user_notifications` triggers Supabase Realtime event in web client | `pnpm --filter web test:e2e tests/e2e/notifications.spec.ts` | [ ] |
-| **VAL-05.6** | Background mobile push alert dispatches cleanly via Firebase Cloud Messaging | `pytest apps/backend/tests/test_fcm_dispatch.py` | [ ] |
-| **VAL-05.7** | Generative UI renders rich GST invoice card via `@assistant-ui/react-generative-ui` | `pnpm --filter web test:e2e tests/e2e/generative-ui.spec.ts` | [ ] |
+| **VAL-05.1** | Anti-SSRF validator strictly blocks `169.254.169.254`, `::ffff:127.0.0.1`, and private RFC 1918 subnets | `uv run pytest apps/backend/tests/test_ssrf_validator.py` | [ ] |
+| **VAL-05.2** | OpenAPI parser converts Indian ERP specs (Zoho Books / Tally) into valid MCP tool declarations | `uv run pytest apps/backend/tests/test_openapi_virtualization.py` | [ ] |
+| **VAL-05.3** | Disconnecting a provider revokes token, drops secret from Supabase Vault, and prunes active tools | `uv run pytest apps/backend/tests/test_mcp_disconnect.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-05.4** | Completing OAuth flow writes connection to Supabase and hot-reloads tools in Agentgateway | `uv run pytest apps/backend/tests/test_mcp_oauth_flow.py` | [ ] |
+| **VAL-05.5** | Inserting row into `public.user_notifications` broadcasts Realtime event to live WebSocket subscriber | `uv run pytest apps/backend/tests/test_realtime_broadcast.py` | [ ] |
+| **VAL-05.6** | Background notification alert dispatches through live Firebase Cloud Messaging (FCM) client | `uv run pytest -m live_fcm apps/backend/tests/test_fcm_dispatch.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-05.7** | Connectors Hub Modal `+ Add ▾ -> OpenAPI Spec` opens drawer and imports custom API endpoint | `pnpm --filter @workkbot/web test:e2e tests/e2e/openapi-import.spec.ts` | [ ] |
+| **VAL-05.8** | Generative UI renders interactive GST invoice preview card via `@assistant-ui/react-generative-ui` | `pnpm --filter @workkbot/web test:e2e tests/e2e/generative-ui.spec.ts` | [ ] |
+| **VAL-05.9** | Supabase Realtime notification toast pops up on web client without page reload | `pnpm --filter @workkbot/web test:e2e tests/e2e/realtime-toasts.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Dynamic Tool Import**: In `http://localhost:3000/chat`, open `+ -> Connectors >`. Click **`+ Add ▾`** and select **"OpenAPI Endpoint"**. Paste sample Petstore/Zoho test spec URL. Click "Register Tool". Confirm new tool appears in `Yours` tab with a green "Active" badge.
+2. **Generative UI GST Card**: Prompt: *"Generate an invoice preview for Acme Corp with GSTIN 27ABCDE1234F1Z5 for 10 laptops at ₹60,000 each + 18% GST"*. Verify assistant-ui renders a rich, styled GST invoice component (with CGST 9% + SGST 9% breakdown, download PDF button, and editable line items).
+3. **Realtime Push Toast**: In a separate terminal or Supabase Dashboard, insert a test notification into `public.user_notifications`. Verify an in-app banner toast appears in the top-right corner of the web interface within 1 second.
+

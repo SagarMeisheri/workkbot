@@ -96,16 +96,46 @@ Workkbot mitigates these risks by routing all tool connection, discovery, saniti
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`), FastAPI (`localhost:8000`), and Agentgateway (`127.0.0.1:8080/mcp`) running on developer machine.
+- **Live Cloud Boundaries**:
+  - Live Supabase Vault (`pgsodium`) in Mumbai (`ap-south-1`) for token decryption.
+  - Live Google ADK in-process runner pausing turns via `ToolContext.request_confirmation()`.
+  - Live Supabase `public.tool_invocations` table and Google Cloud Logging sink for immutable audit trails.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-04.1** | User OAuth tokens are encrypted in Supabase Vault and decrypted only at runtime | `pytest apps/backend/tests/test_vault_encryption.py` | [ ] |
-| **VAL-04.2** | Agentgateway fans out `tools/list` across multiple MCP servers into a single unified catalog | `pytest apps/backend/tests/test_mcp_dynamic_registration.py` | [ ] |
-| **VAL-04.3** | Automated classifier correctly tags `create_issue` as critical and `search_issues` as read-only | `pytest apps/backend/tests/test_classifier_heuristics.py` | [ ] |
-| **VAL-04.4** | Calling a mutating tool displays the inline confirmation card directly to the active user | `pytest apps/backend/tests/test_hitl_inline_prompt.py` | [ ] |
-| **VAL-04.5** | Approving a tool action on Cloud Run commits execution and streams final reply | `pytest apps/backend/tests/test_hitl_approval_commit.py` | [ ] |
-| **VAL-04.6** | Every tool execution produces an immutable record in `tool_invocations` & Cloud Logging | `pytest apps/backend/tests/test_tool_audit_emission.py` | [ ] |
-| **VAL-04.7** | Agentgateway blocks tool definition containing indirect prompt injection payload | `pytest apps/backend/tests/test_tool_poisoning_defense.py` | [ ] |
-| **VAL-04.8** | Parameter sanitization rejects path traversal and CRLF injections in tool args (CVE-2026-29791) | `pytest apps/backend/tests/test_mcp_parameter_sanitization.py` | [ ] |
-| **VAL-04.9** | ApprovalCard renders and confirms smoothly on React Native mobile app | `pnpm --filter mobile test:e2e tests/e2e/approval-card.spec.ts` | [ ] |
+| **VAL-04.1** | Heuristic classifier accurately flags mutating actions (`send_invoice`, `delete_event`) as critical | `uv run pytest apps/backend/tests/test_classifier_heuristics.py` | [ ] |
+| **VAL-04.2** | Parameter sanitization blocks path traversal, CRLF, and shell injections in tool args (CVE-2026-29791) | `uv run pytest apps/backend/tests/test_mcp_parameter_sanitization.py` | [ ] |
+| **VAL-04.3** | Agentgateway anti-poisoning filter strips prompt injection markers from tool definitions | `uv run pytest apps/backend/tests/test_tool_poisoning_defense.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-04.4** | Agentgateway fans out `tools/list` across configured MCP servers on loopback `:8080/mcp` | `uv run pytest apps/backend/tests/test_mcp_dynamic_registration.py` | [ ] |
+| **VAL-04.5** | Live Supabase Vault decrypts OAuth tokens at runtime and injects bearer headers | `uv run pytest apps/backend/tests/test_vault_encryption.py` | [ ] |
+| **VAL-04.6** | Mutating tool pauses ADK runner stream via `request_confirmation()`; resuming on approval completes turn | `uv run pytest apps/backend/tests/test_hitl_approval_commit.py` | [ ] |
+| **VAL-04.7** | Every tool execution produces an immutable audit record in `public.tool_invocations` and Cloud Logging | `uv run pytest apps/backend/tests/test_tool_audit_emission.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-04.8** | In-stream `ApprovalCard` renders with tool name, formatted parameters, and [Confirm] / [Reject] buttons | `pnpm --filter @workkbot/web test:e2e tests/e2e/approval-card-render.spec.ts` | [ ] |
+| **VAL-04.9** | Clicking [Confirm] transitions card badge to "Approved", executes tool, and streams final response | `pnpm --filter @workkbot/web test:e2e tests/e2e/approval-card-action.spec.ts` | [ ] |
+| **VAL-04.10** | Clicking [Reject] cancels tool execution and prompts model to provide an alternate plan | `pnpm --filter @workkbot/web test:e2e tests/e2e/approval-card-reject.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Trigger Mutating Tool**: In `http://localhost:3000/chat`, prompt: *"Create a calendar event for Team Standup tomorrow at 10 AM"*. Confirm the assistant pauses streaming and renders the interactive `ApprovalCard`.
+2. **Inspect Approval Card**: Verify card displays:
+   - Tool Name: `google_calendar_create_event`
+   - Parameters: `summary="Team Standup"`, `start_time="Tomorrow 10:00 AM"`
+   - Security Notice: *"This action will create an external calendar event"*
+3. **Approve Action**: Click **[Confirm]**. Observe card status update to *"Executing..."* and then *"Completed"*. Confirm model streams confirmation: *"I have scheduled Team Standup for tomorrow at 10 AM."*
+4. **Reject Action**: In a new turn, prompt: *"Send an invoice of ₹50,000 to Client ABC"*. When the `ApprovalCard` appears, click **[Reject]**. Verify model responds: *"Action cancelled. Let me know if you would like to modify the invoice details."*
+5. **Verify Audit Trail**: In Supabase table `public.tool_invocations`, verify both approved and rejected tool records exist with accurate statuses and timestamps.
+

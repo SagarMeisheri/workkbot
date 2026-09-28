@@ -130,14 +130,41 @@ This spec builds the **React Native (Expo SDK 52+)** native mobile app integrate
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Production Cloud Run Mandatory`
+- **Environment**: React Native (Expo SDK 52) on iOS/Android device/simulator communicating with **live Cloud Run multi-container pod in Mumbai (`asia-south1`)**.
+- **Why Cloud Run is Mandatory**:
+  - **Google Cloud Armor WAF**: Enforces Indian geofencing (`origin.region_code == 'IN'`) and edge rate-limiting at the Google Cloud HTTPS Load Balancer. Cannot be validated on localhost.
+  - **Direct VPC Egress**: Enforces metadata firewall rule dropping `169.254.169.254/32`.
+  - **Apple App Store Reviewer Submission**: Apple review team tests against live, public HTTPS endpoints (`https://api.workkbot.in`) using pre-provisioned Reviewer Demo credentials (`apple-reviewer@workkbot.in`).
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-10.1** | Long-pressing any AI message displays the "Report Response" modal (Apple 1.2) | `pytest apps/backend/tests/test_mobile_report_safety.py` | [ ] |
-| **VAL-10.2** | Reviewer credentials log in directly to demo tenant without MFA blocking (Apple 2.1) | `curl -f -X POST https://$BACKEND_URL/api/v1/auth/reviewer-login` | [ ] |
-| **VAL-10.3** | "Delete Account & Reset Memory" purges local SQLite cache and executes DSR (Apple 5.1.1) | `pytest apps/backend/tests/test_mobile_account_deletion.py` | [ ] |
-| **VAL-10.4** | Biometric prompt gates app launch when backgrounded and resumed | Manual device test with Face ID enabled | [ ] |
-| **VAL-10.5** | Offline message queues properly and dispatches upon reconnecting to WiFi | Airplane mode test: type -> toggle WiFi on -> confirm delivery | [ ] |
-| **VAL-10.6** | Expo build generates valid `PrivacyInfo.xcprivacy` with zero missing symbols | `npx expo prebuild --clean` | [ ] |
-| **VAL-10.7** | Artifacts render strictly inside sandboxed WebView without native bridge access (Apple 2.5.2) | `pnpm --filter mobile test:e2e tests/e2e/artifact-webview.spec.ts` | [ ] |
+| **VAL-10.1** | `npx expo prebuild --clean` generates valid `PrivacyInfo.xcprivacy` with zero missing API declarations | `cd apps/mobile && npx expo prebuild --clean` | [ ] |
+| **VAL-10.2** | Offline SQLite queue schema initializes tables for messages, conversations, and sync state | `pnpm --filter @workkbot/mobile test tests/unit/sqlite-queue.test.ts` | [ ] |
+| **VAL-10.3** | Sandboxed WebView component strips native JavaScript bridge and restricts origins (Apple 2.5.2) | `pnpm --filter @workkbot/mobile test tests/unit/artifact-webview.test.ts` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-10.4** | Cloud Armor WAF permits Indian IP traffic and rejects simulated non-Indian IP probes | `uv run pytest -m live_cloud_armor apps/backend/tests/test_cloud_armor_waf.py` | [ ] |
+| **VAL-10.5** | Mobile Reviewer Login (`POST /api/v1/auth/reviewer-login`) returns valid JWT and binds demo tenant | `curl -f -X POST https://$PRODUCTION_BACKEND_URL/api/v1/auth/reviewer-login -d '{"email":"apple-reviewer@workkbot.in","password":"ReviewerDemo2026!Secured"}'` | [ ] |
+| **VAL-10.6** | In-app mobile account deletion calls `/api/v1/account/delete`, purges local SQLite, and resets state | `uv run pytest apps/backend/tests/test_mobile_account_deletion.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-10.7** | Long-pressing any assistant bubble renders native Action Sheet with **[Report Response]** (Apple 1.2) | `pnpm --filter @workkbot/mobile test:e2e tests/e2e/message-report-action.spec.ts` | [ ] |
+| **VAL-10.8** | Biometric unlock prompt (`expo-local-authentication`) gates app launch when resumed | `pnpm --filter @workkbot/mobile test:e2e tests/e2e/biometric-gate.spec.ts` | [ ] |
+| **VAL-10.9** | Floating mobile composer renders native bottom sheet `+` menu with all 8 action items | `pnpm --filter @workkbot/mobile test:e2e tests/e2e/mobile-composer.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol (Apple Reviewer Walkthrough)**
+1. **App Store Reviewer Mode**: On a physical iOS device / TestFlight, launch Workkbot. Tap **"Reviewer Sandbox Login"**. Confirm instantaneous login into the isolated demo organization without Google SSO or SMS OTP (Apple Guideline 2.1).
+2. **AI Content Moderation (Apple 1.2)**: Send a prompt. When the AI responds, long-press the chat bubble. Tap **"Report AI Response"**. Select reason "Sensitive PII", add comment, tap Submit. Confirm report confirmation toast appears.
+3. **Airplane Mode Offline Queue**: Toggle Airplane Mode ON (disconnect WiFi and Cellular). Type: *"Draft a memo to the operations team"*. Tap Send. Confirm the message renders with a grey clock icon and **"Pending Send"** status pill. Toggle Airplane Mode OFF. Confirm message automatically transitions to "Sent" and AI streaming commences.
+4. **Complete In-App Account & Cache Erasure (Apple 5.1.1)**: Open mobile Settings -> tap **[Delete Account & Purge Memory]**. Confirm alert. Verify local SQLite database is dropped, auth tokens in Keychain/SecureStore are purged, and app resets to unauthenticated login screen.
+

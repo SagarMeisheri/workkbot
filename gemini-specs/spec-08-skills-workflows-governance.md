@@ -94,14 +94,43 @@ Workkbot resolves this by structuring skills, progressive multi-agent workflows,
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`) and FastAPI (`localhost:8000`) on developer machine.
+- **Live Cloud Boundaries**:
+  - Live local filesystem discovery from `skills/<name>/SKILL.md`.
+  - In-process Google ADK 2.0 `SequentialAgent` executing with live Gemini 2.0 Flash.
+  - Live Supabase `public.token_ledger` and Google Cloud Monitoring API emitting metric `workkbot/token_cost_inr` via Google Application Default Credentials.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-08.1** | Adding a markdown file in `skills/` makes the skill discoverable with zero code change | `pytest apps/backend/tests/test_skill_discovery.py` | [ ] |
-| **VAL-08.2** | Router injects only matching skills; unrelated skills are excluded from context | `pytest apps/backend/tests/test_skill_routing.py` | [ ] |
-| **VAL-08.3** | Level 3 SequentialAgent executes steps deterministically passing state via `output_key` | `pytest apps/backend/tests/test_sequential_agent.py` | [ ] |
-| **VAL-08.4** | Coordinator agent delegates task to external agent using Agentgateway A2A protocol | `pytest apps/backend/tests/test_a2a_delegation.py` | [ ] |
-| **VAL-08.5** | Governance plugin writes token usage and INR cost rows to Supabase `agent_runs` | `pytest apps/backend/tests/test_governance_inr_logging.py` | [ ] |
-| **VAL-08.6** | Google Cloud Monitoring receives custom metric `token_cost_inr` | `pytest apps/backend/tests/test_cloud_monitoring_emission.py` | [ ] |
-| **VAL-08.7** | Sub-agent handoffs display fluid status badges on web and mobile | `pnpm --filter web test:e2e tests/e2e/agent-transfer.spec.ts` | [ ] |
+| **VAL-08.1** | Skill parser extracts YAML frontmatter, description, and execution prompts from `SKILL.md` | `uv run pytest apps/backend/tests/test_skill_discovery.py` | [ ] |
+| **VAL-08.2** | Router injects only matching skills into `before_model` context; unrelated skills are excluded | `uv run pytest apps/backend/tests/test_skill_routing.py` | [ ] |
+| **VAL-08.3** | SequentialAgent executes steps deterministically passing state via `output_key` | `uv run pytest apps/backend/tests/test_sequential_agent.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-08.4** | Coordinator agent delegates task to external agent using Agentgateway A2A protocol | `uv run pytest apps/backend/tests/test_a2a_delegation.py` | [ ] |
+| **VAL-08.5** | Real token usage and INR cost calculation writes immutable rows to `public.token_ledger` | `uv run pytest apps/backend/tests/test_governance_inr_logging.py` | [ ] |
+| **VAL-08.6** | Live Google Cloud Monitoring receives custom metric `workkbot/token_cost_inr` via Google SDK | `uv run pytest -m live_gcp apps/backend/tests/test_cloud_monitoring_emission.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-08.7** | Composer `+ -> Skills >` submenu lists all discovered skills with icons and descriptions | `pnpm --filter @workkbot/web test:e2e tests/e2e/skills-popover.spec.ts` | [ ] |
+| **VAL-08.8** | Sub-agent workflow execution displays fluid status badges ("Analyzing -> Drafting -> Validating") | `pnpm --filter @workkbot/web test:e2e tests/e2e/workflow-badges.spec.ts` | [ ] |
+| **VAL-08.9** | Turn footer displays estimated INR token cost pill (`₹0.04`) for the completed prompt | `pnpm --filter @workkbot/web test:e2e tests/e2e/token-cost-pill.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Discover Skill via UI**: In `http://localhost:3000/chat`, click `+` on the floating composer. Hover over `Skills >`. Confirm newly created skills in `skills/` appear in the submenu without app restart.
+2. **Execute Sequential Workflow**: Select **"GST Audit Workflow"**. Prompt: *"Audit our September sales ledger for GST compliance."* Confirm the chat bubble renders real-time progressive status pills:
+   - `Step 1/3: Extracting GSTINs...`
+   - `Step 2/3: Validating against state tax rules...`
+   - `Step 3/3: Generating compliance summary...`
+3. **Verify Cloud Monitoring Metric**: Open Google Cloud Console -> Cloud Monitoring -> Metrics Explorer. Query `custom.googleapis.com/workkbot/token_cost_inr`. Confirm metric values corresponding to your recent chat turn were received within the last 3 minutes.
+

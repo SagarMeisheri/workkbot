@@ -99,12 +99,41 @@ Workkbot implements a **custom `BaseMemoryService` combining Google Vertex AI Em
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`) and FastAPI (`localhost:8000`) on developer machine.
+- **Live Cloud Boundaries**:
+  - Live Google Vertex AI `text-embedding-004` (768 dimensions in `asia-south1`) via Google Application Default Credentials.
+  - Live Supabase Mumbai (`ap-south-1`) `pgvector` extension with HNSW cosine distance index (`vector_cosine_ops`, `<=>`).
+  - Strict RLS filtering by `org_id` and `user_id`. No random float generators or in-memory vector lists permitted.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-06.1** | Fact learned in Session 1 is retrieved via Supabase Vector search in Session 2 | `pytest apps/backend/tests/test_memory_recall.py` | [ ] |
-| **VAL-06.2** | Memory embedding search executes in <40ms via HNSW index in Supabase | `pytest apps/backend/tests/test_memory_hnsw_speed.py` | [ ] |
-| **VAL-06.3** | Supabase RLS guarantees User from Org A cannot retrieve memory items of Org B | `pytest apps/backend/tests/test_memory_tenant_isolation.py` | [ ] |
-| **VAL-06.4** | Deleting a fact from the UI permanently drops row and HNSW vector index entry (Apple 5.1.1) | `pytest apps/backend/tests/test_memory_deletion.py` | [ ] |
-| **VAL-06.5** | Asynchronous extraction does not add latency to the primary chat SSE stream | `pytest apps/backend/tests/test_memory_async_latency.py` | [ ] |
+| **VAL-06.1** | Background extraction: ADK `after_agent` parses conversation and extracts atomic facts | `uv run pytest apps/backend/tests/test_memory_extraction_parser.py` | [ ] |
+| **VAL-06.2** | Multi-tenant isolation: Org A user cannot query or retrieve vector memories of Org B | `uv run pytest apps/backend/tests/test_memory_tenant_isolation.py` | [ ] |
+| **VAL-06.3** | Async extraction pipeline does not add blocking latency to the primary chat SSE stream | `uv run pytest apps/backend/tests/test_memory_async_latency.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-06.4** | Vertex AI `text-embedding-004` generates live 768-dim embeddings stored in Supabase `pgvector` | `uv run pytest -m live_vertex apps/backend/tests/test_live_embeddings.py` | [ ] |
+| **VAL-06.5** | HNSW cosine similarity search (`<=>`) executes in <40ms with similarity score > 0.82 | `uv run pytest apps/backend/tests/test_memory_hnsw_speed.py` | [ ] |
+| **VAL-06.6** | Multi-session recall: Fact learned in Session 1 is injected into Session 2 model context | `uv run pytest apps/backend/tests/test_memory_recall.py` | [ ] |
+| **VAL-06.7** | Deleting a memory row permanently drops the embedding and HNSW index entry (Apple 5.1.1) | `uv run pytest apps/backend/tests/test_memory_deletion.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-06.8** | Chat turn displays subtle "Memory Recalled" chip showing preview of retrieved facts | `pnpm --filter @workkbot/web test:e2e tests/e2e/memory-recalled-chip.spec.ts` | [ ] |
+| **VAL-06.9** | Memory Management Drawer lists stored memories with date and confidence badges | `pnpm --filter @workkbot/web test:e2e tests/e2e/memory-drawer.spec.ts` | [ ] |
+| **VAL-06.10** | Clicking [Delete] on a memory item in the UI removes it instantly with animation | `pnpm --filter @workkbot/web test:e2e tests/e2e/memory-item-delete.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Fact Ingestion Turn**: In `http://localhost:3000/chat`, prompt: *"My primary billing currency is INR and all invoice dates should follow DD/MM/YYYY format."* Confirm model acknowledges.
+2. **Cross-Session Recall**: Click `+ New thread` in the sidebar to start a brand new conversation. Prompt: *"Draft a payment reminder for client XYZ"*. Confirm model formats the invoice in INR and uses DD/MM/YYYY dates without being prompted. Verify a small "Memory Recalled" badge appears below the composer.
+3. **Memory Self-Serve Erasure (Apple 5.1.1)**: Click user avatar in sidebar -> open **"Memory & Facts"** drawer. Locate the entry *"Primary currency: INR"*. Click **[Delete]**. Confirm the item disappears. In a new thread, ask the assistant what your preferred currency is; confirm it no longer knows.
+

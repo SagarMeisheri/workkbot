@@ -90,14 +90,39 @@ All chat decisions route through the **5 Core Frameworks**:
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`) and FastAPI (`localhost:8000`) on developer machine.
+- **Live Cloud Boundaries**: Live Vertex AI Gemini 2.0 Flash (`asia-south1`) via Google ADK in-process runner, live Supabase Mumbai (`ap-south-1`) for `public.adk_sessions`, `public.adk_events`, and `public.ai_content_reports`. No mocks or sleep timers permitted.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-02.1** | Authenticated user streams a response token-by-token over SSE via Cloud Run | `pnpm --filter web test:e2e tests/e2e/chat-stream.spec.ts` | [ ] |
-| **VAL-02.2** | First token delivered in <800ms TTFT under Cloud Run | `pytest apps/backend/tests/test_chat_sse_latency.py` | [ ] |
-| **VAL-02.3** | Killing and restarting backend container preserves conversation history in Supabase | `pytest apps/backend/tests/test_session_durability.py` | [ ] |
-| **VAL-02.4** | Editing a message creates a new branch without overwriting prior history in Postgres | `pytest apps/backend/tests/test_event_branching.py` | [ ] |
-| **VAL-02.5** | User from Org A cannot read conversations belonging to Org B (Supabase RLS) | `pytest apps/backend/tests/test_conversation_tenant_isolation.py` | [ ] |
-| **VAL-02.6** | Agentgateway successfully fails over from primary to secondary LLM on simulated 429 | `pytest apps/backend/tests/test_llm_gateway_failover.py` | [ ] |
-| **VAL-02.7** | Clicking "Flag AI Content" opens modal and records incident in Supabase (Apple 1.2) | `pnpm --filter web test:e2e tests/e2e/ai-flagging.spec.ts` | [ ] |
+| **VAL-02.1** | Session durability: Backend restarts preserve conversation history in Supabase | `uv run pytest apps/backend/tests/test_session_durability.py` | [ ] |
+| **VAL-02.2** | Event tree branching: Editing an earlier turn branches without overwriting prior events | `uv run pytest apps/backend/tests/test_event_branching.py` | [ ] |
+| **VAL-02.3** | Tenant isolation: Org A user cannot read conversations of Org B via Supabase RLS | `uv run pytest apps/backend/tests/test_conversation_tenant_isolation.py` | [ ] |
+| **VAL-02.4** | Gateway failover: Simulated 429 triggers transparent fallback to secondary LLM model | `uv run pytest apps/backend/tests/test_llm_gateway_failover.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-02.5** | Real Gemini 2.0 Flash token-by-token stream over HTTP/2 SSE with TTFT < 800ms | `uv run pytest -m live_gemini apps/backend/tests/test_chat_stream.py` | [ ] |
+| **VAL-02.6** | Gemini thinking/reasoning blocks stream and parse into assistant-ui message state | `uv run pytest -m live_gemini apps/backend/tests/test_live_e2e_spec_01_and_02.py` | [ ] |
+| **VAL-02.7** | Submitting AI Flag/Report modal inserts incident record into `public.ai_content_reports` | `uv run pytest apps/backend/tests/test_ai_content_reporting.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-02.8** | Hero greeting switches from State 1 ("How can I help you today?") to State 2 ("✳ Back at it, [name]") | `pnpm --filter @workkbot/web test:e2e tests/e2e/chat-hero.spec.ts` | [ ] |
+| **VAL-02.9** | Floating composer renders input, mode toggle pill `[Chat \| Cowork]`, model selector, and mic | `pnpm --filter @workkbot/web test:e2e tests/e2e/floating-composer.spec.ts` | [ ] |
+| **VAL-02.10** | BranchPickerPrimitive `< 1/2 >` renders on edited turns and switches active branch | `pnpm --filter @workkbot/web test:e2e tests/e2e/branch-picker.spec.ts` | [ ] |
+| **VAL-02.11** | ActionBarPrimitive renders "Flag / Report AI Content" button on every message bubble (Apple 1.2) | `pnpm --filter @workkbot/web test:e2e tests/e2e/ai-flagging.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Live Stream & Thinking Inspection**: In `http://localhost:3000/chat`, prompt: *"Derive the quadratic formula step by step"*. Observe real-time token stream with blinking cursor, verify TTFT feels instant (<800ms), and click the "Reasoning" accordion to view Gemini's internal thinking process.
+2. **Branching Walkthrough**: Hover over your first user message, click the Edit pencil icon, change the prompt to *"Derive the Pythagorean theorem"*, and submit. Confirm response regenerates and branch navigation `< 1/2 >` appears on the turn.
+3. **Apple 1.2 Report Flag**: Hover over the assistant's reply, click the Flag icon (`FlagPrimitive`). Select reason "Inaccurate", add note *"Formula missing square root"*, and click Submit. Confirm success toast appears. Verify in Supabase table `public.ai_content_reports` that the record exists.
+

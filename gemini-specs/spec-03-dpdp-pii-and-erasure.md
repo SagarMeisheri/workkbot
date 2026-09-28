@@ -134,13 +134,47 @@ Workkbot resolves this by routing all privacy, redaction, and erasure decisions 
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000`) and FastAPI (`localhost:8000`) on developer machine.
+- **Live Cloud Boundaries**:
+  - Live Google Cloud Sensitive Data Protection (DLP API in `asia-south1`) via Google Application Default Credentials (`gcloud auth application-default login`).
+  - Live Supabase Mumbai (`ap-south-1`) executing `execute_dsr_erasure()` and `client.auth.admin.delete_user()`.
+  - Live Google Cloud Logging sink for CERT-In compliant security events. No mock PII or synthetic deletions permitted.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.1** | Prompt containing Email, PAN, and Aadhaar replaces PII with tokens before reaching Vertex AI | `pytest apps/backend/tests/test_pii_redaction.py` | [ ] |
-| **VAL-03.2** | Tool call emitted with tokens (`<EMAIL_1>`) is rehydrated to real email before tool executes | `pytest apps/backend/tests/test_tool_rehydration.py` | [ ] |
-| **VAL-03.3** | Tool output containing sensitive PII is masked before re-entering LLM context | `pytest apps/backend/tests/test_tool_output_masking.py` | [ ] |
-| **VAL-03.4** | Executing Supabase DSR RPC completely purges user chat logs and vector embeddings | `pytest apps/backend/tests/test_dsr_erasure_cascade.py` | [ ] |
-| **VAL-03.5** | In-app account deletion wipes Supabase Auth user, Vault tokens, and sessions (Apple 5.1.1) | `pytest apps/backend/tests/test_in_app_account_erasure.py` | [ ] |
-| **VAL-03.6** | Security events write CERT-In compliant JSON payloads to Google Cloud Logging | `pytest apps/backend/tests/test_cert_in_logging.py` | [ ] |
+| **VAL-03.1** | Presidio Tier-1 fast-path: Indian Aadhaar (Verhoeff checksum) and PAN regex redact accurately | `uv run pytest apps/backend/tests/test_pii_fast_path.py` | [ ] |
+| **VAL-03.2** | Reversible tokenization: `<EMAIL_1>` and `<IN_PAN_1>` map to ephemeral session vault | `uv run pytest apps/backend/tests/test_pii_vault_lifecycle.py` | [ ] |
+| **VAL-03.3** | Tool rehydration: ADK `before_tool` replaces tokens with real PII before tool dispatch | `uv run pytest apps/backend/tests/test_tool_rehydration.py` | [ ] |
+| **VAL-03.4** | Tool output masking: ADK `after_tool` redacts newly returned PII before re-entering LLM context | `uv run pytest apps/backend/tests/test_tool_output_masking.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-03.5** | Live Google Cloud DLP API in `asia-south1` detects Indian Aadhaar, PAN, and GST numbers | `uv run pytest -m live_dlp apps/backend/tests/test_live_cloud_dlp.py` | [ ] |
+| **VAL-03.6** | Live Supabase `execute_dsr_erasure()` RPC purges sessions, events, memory, and anonymizes audit records | `uv run pytest apps/backend/tests/test_dsr_erasure_cascade.py` | [ ] |
+| **VAL-03.7** | Backend `/api/v1/account/delete` atomically deletes live Supabase Auth user & Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/test_in_app_account_erasure.py` | [ ] |
+| **VAL-03.8** | Security events write CERT-In compliant structured JSON to live Google Cloud Logging | `uv run pytest -m live_gcp apps/backend/tests/test_cert_in_logging.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-03.9** | Chat stream renders rehydrated text to user (e.g. Rahul, PAN), never displaying raw tokens like `<IN_PAN_1>` | `pnpm --filter @workkbot/web test:e2e tests/e2e/chat-pii-rehydration.spec.ts` | [ ] |
+| **VAL-03.10** | Employee Privacy portal (`/settings/privacy`) displays DPDP statutory notices and DSR export buttons | `pnpm --filter @workkbot/web test:e2e tests/e2e/privacy-settings.spec.ts` | [ ] |
+| **VAL-03.11** | Clicking **[Delete Account & Purge Data]** opens confirmation modal and redirects to `/login` | `pnpm --filter @workkbot/web test:e2e tests/e2e/account-deletion-ui.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **Chat PII Rehydration**: In `http://localhost:3000/chat`, prompt: *"Rahul's PAN is ABCDE1234F. Remind him to file taxes."* Verify assistant response addresses Rahul by name and refers to his PAN naturally. In backend terminal logs, verify prompt sent to Vertex AI was sanitized to `<PERSON_1>` and `<IN_PAN_1>`.
+2. **DSR Data Export**: Navigate to `http://localhost:3000/settings/privacy`. Click **"Download My Data (JSON)"**. Open downloaded zip file and confirm all past conversations, consents, and connected providers are included in clean JSON format.
+3. **In-App Account & Memory Purge (Apple 5.1.1)**: On the privacy page, click **[Delete Account & Purge Data]**. Type "DELETE" into the safety input and click Confirm. Verify immediate redirection to `/login`. In live Supabase SQL editor, execute:
+   ```sql
+   SELECT * FROM auth.users WHERE email = '<your_email>';
+   SELECT * FROM public.profiles WHERE email = '<your_email>';
+   ```
+   Confirm zero records remain across all tables.
+

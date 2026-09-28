@@ -93,13 +93,44 @@ Workkbot routes all administrative governance, observability, and compliance aud
 
 ---
 
-## 5. Validation Scorecard
+## 5. Validation Scorecard & Execution Target
 
+### **Execution Target**: `Localhost (Zero-Mock)`
+- **Environment**: Next.js 15 (`localhost:3000/admin`) and FastAPI (`localhost:8000`) on developer machine.
+- **Live Cloud Boundaries**:
+  - Live Google BigQuery audit dataset in `asia-south1` with 7-year immutable retention policy via Google Application Default Credentials (`gcloud auth application-default login`).
+  - Live Google Cloud Logging sink streaming audit events to BigQuery.
+  - Live Supabase RBAC enforcing `admin` vs `member` roles.
+
+---
+
+### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-09.1** | Standard `member` user attempting to access admin tables is blocked by Supabase RLS | `pytest apps/backend/tests/test_admin_rbac.py` | [ ] |
-| **VAL-09.2** | Disabling an MCP provider in Admin Console removes it from employee connection options | `pytest apps/backend/tests/test_provider_allowlist.py` | [ ] |
-| **VAL-09.3** | Cost aggregation correctly calculates INR totals based on model pricing tiers | `pytest apps/backend/tests/test_inr_metrics_aggregation.py` | [ ] |
-| **VAL-09.4** | Cloud Logging sink delivers immutable audit records to BigQuery in `asia-south1` | `bq query --use_legacy_sql=false "SELECT count(*) FROM \`$PROJECT.audit_dataset.tool_invocations\`"` | [ ] |
-| **VAL-09.5** | Agentgateway security events stream into BigQuery & Admin UI | `pytest apps/backend/tests/test_security_audit_ingestion.py` | [ ] |
-| **VAL-09.6** | Trace waterfall renders smoothly using `@assistant-ui/react-o11y` | `pnpm --filter web test:e2e tests/e2e/trace-waterfall.spec.ts` | [ ] |
+| **VAL-09.1** | Standard `member` user attempting to access admin tables or endpoints is blocked by Supabase RLS | `uv run pytest apps/backend/tests/test_admin_rbac.py` | [ ] |
+| **VAL-09.2** | Disabling an MCP provider in Admin Console updates `allowed_connectors` and excludes it from discovery | `uv run pytest apps/backend/tests/test_provider_allowlist.py` | [ ] |
+| **VAL-09.3** | Cost aggregation accurately calculates daily INR totals based on model pricing tiers | `uv run pytest apps/backend/tests/test_inr_metrics_aggregation.py` | [ ] |
+
+### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-09.4** | Cloud Logging sink exports tool invocations to live BigQuery table in `asia-south1` | `uv run pytest -m live_bigquery apps/backend/tests/test_bigquery_audit_ingestion.py` | [ ] |
+| **VAL-09.5** | Agentgateway security events stream into BigQuery with trace IDs linking to user sessions | `uv run pytest -m live_bigquery apps/backend/tests/test_security_audit_ingestion.py` | [ ] |
+| **VAL-09.6** | Admin CLI (`@assistant-ui/react-ink`) queries live database and renders formatted tables in terminal | `uv run pytest apps/backend/tests/test_admin_ink_cli.py` | [ ] |
+
+### **Tier 3: UI & Front-End E2E Tests (Automated)**
+| Check ID | Verification Criteria | Test Command | Pass/Fail |
+|:---:|---|---|:---:|
+| **VAL-09.7** | Admin Console dashboard (`/admin`) renders metrics cards (Active Users, INR Spend, Tool Calls) | `pnpm --filter @workkbot/web test:e2e tests/e2e/admin-dashboard.spec.ts` | [ ] |
+| **VAL-09.8** | Connector toggle switches update organization allowlist state optimistically with toast | `pnpm --filter @workkbot/web test:e2e tests/e2e/admin-connectors-toggle.spec.ts` | [ ] |
+| **VAL-09.9** | Trace waterfall renders smoothly using `@assistant-ui/react-o11y` displaying event spans | `pnpm --filter @workkbot/web test:e2e tests/e2e/trace-waterfall.spec.ts` | [ ] |
+
+### **Tier 4: Manual Verification Protocol**
+1. **RBAC Guard Inspection**: Log in as a standard non-admin member (`user@acme.in`). Navigate to `http://localhost:3000/admin`. Verify that a 403 "Unauthorized: Admin Privileges Required" screen appears.
+2. **Connector Allowlist Toggle**: Log in as admin (`admin@acme.in`). Open `/admin/connectors`. Toggle "Zoho Workplace" to Disabled. In an incognito tab as an employee, open the chat `+ -> Connectors >` modal. Verify Zoho Workplace no longer appears under "Discover".
+3. **BigQuery Audit Verification**: Trigger a tool action in chat. Run the BigQuery verification query:
+   ```bash
+   bq query --use_legacy_sql=false "SELECT tool_name, status, user_id FROM \`$GCP_PROJECT.workkbot_audit.tool_invocations\` ORDER BY timestamp DESC LIMIT 1"
+   ```
+   Confirm the record appears in the live BigQuery dataset with matching parameters.
+
