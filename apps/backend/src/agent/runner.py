@@ -13,6 +13,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from google.adk.events.event import Event
 from google.adk.runners import Runner
+from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.genai import types
 
 from src.agent.agent import core_agent
@@ -51,7 +52,7 @@ class AdkRunnerSingleton:
         """
         Executes a conversational turn using canonical Google ADK 2.0.
         Supports checkpoint-based branching when checkpoint_id is provided.
-        Streams real model outputs directly with zero hardcoded responses.
+        Streams real model outputs progressively via StreamingMode.SSE.
         """
         start_time = time.time()
 
@@ -82,20 +83,25 @@ class AdkRunnerSingleton:
         )
 
         model_event_id = f"evt_{uuid.uuid4().hex[:12]}_m"
-        received_any_chunks = False
+        last_event_id = model_event_id
+        received_partials = False
+        run_config = RunConfig(streaming_mode=StreamingMode.SSE)
 
-        # 4. Execute turn via canonical Google ADK Runner
+        # 4. Execute turn via canonical Google ADK Runner with StreamingMode.SSE
         try:
             async for adk_event in self._runner.run_async(
                 user_id=user_id,
                 session_id=session_id,
                 new_message=new_message,
                 state_delta=state_delta,
+                run_config=run_config,
             ):
                 if adk_event.author == "user":
                     continue
 
                 eid = adk_event.id or model_event_id
+                last_event_id = eid
+                is_partial = getattr(adk_event, "partial", False)
                 content = adk_event.content
                 parts_data = []
 
@@ -111,22 +117,45 @@ class AdkRunnerSingleton:
                         if part_dict:
                             parts_data.append(part_dict)
 
-                turn_done = getattr(adk_event, "turn_complete", False)
-                if parts_data or turn_done:
-                    received_any_chunks = True
-                    yield {
-                        "id": eid,
-                        "author": "model",
-                        "branch": branch_name,
-                        "content": {
-                            "role": "model",
-                            "parts": parts_data,
-                        },
-                        "turnComplete": turn_done,
-                    }
+                if is_partial:
+                    if parts_data:
+                        received_partials = True
+                        yield {
+                            "id": eid,
+                            "author": "model",
+                            "branch": branch_name,
+                            "content": {
+                                "role": "model",
+                                "parts": parts_data,
+                            },
+                            "turnComplete": False,
+                        }
+                else:
+                    # Non-partial event: if no partials were received, stream this whole content
+                    if not received_partials and parts_data:
+                        yield {
+                            "id": eid,
+                            "author": "model",
+                            "branch": branch_name,
+                            "content": {
+                                "role": "model",
+                                "parts": parts_data,
+                            },
+                            "turnComplete": False,
+                        }
 
-            if received_any_chunks:
-                self.model_router.record_success(active_model)
+            # Final completion event signifying turn complete
+            self.model_router.record_success(active_model)
+            yield {
+                "id": last_event_id,
+                "author": "model",
+                "branch": branch_name,
+                "content": {
+                    "role": "model",
+                    "parts": [],
+                },
+                "turnComplete": True,
+            }
 
         except Exception as exc:
             logger.warning(

@@ -298,9 +298,10 @@ async def adk_adapter_get_session(
     events = sess.get("events", [])
     formatted_events = []
     for ev in events:
+        author_val = "user" if ev.get("author") == "user" else "model"
         formatted_events.append({
             "id": ev["id"],
-            "author": ev.get("author", "user"),
+            "author": author_val,
             "branch": ev.get("branch", "main"),
             "content": ev.get("content", {}),
             "turnComplete": ev.get("turn_complete", True),
