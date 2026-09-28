@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from src.config import settings
 from src.auth.dependencies import CurrentUser, get_current_user
-from src.auth.client import _local_db
+from src.auth.client import supabase_admin, _local_db
 from src.routers.auth import router as auth_router
 from src.routers.consent import router as consent_router
 from src.routers.account import router as account_router
@@ -62,16 +62,28 @@ async def chat_endpoint(
     Core conversational endpoint gated by DPDP statutory consent (VAL-01.4).
     If the user has not signed statutory consent, aborts with HTTP 403.
     """
-    consent = next(
-        (c for c in _local_db["user_consents"]
-         if c["user_id"] == current_user.id and c["status"] == "active"),
-        None
-    )
-    if not consent:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="DPDP statutory consent required before initiating conversation",
+    # Check live Supabase user_consents
+    client = supabase_admin.get_client()
+    has_consented = False
+    if client:
+        try:
+            res = client.table("user_consents").select("id").eq("user_id", current_user.id).eq("status", "active").execute()
+            if res.data:
+                has_consented = True
+        except Exception:
+            pass
+
+    if not has_consented:
+        consent = next(
+            (c for c in _local_db["user_consents"]
+             if c["user_id"] == current_user.id and c["status"] == "active"),
+            None
         )
+        if not consent:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="DPDP statutory consent required before initiating conversation",
+            )
 
     return {
         "reply": f"Hello {current_user.email}! Received: {payload.message}",

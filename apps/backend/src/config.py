@@ -1,5 +1,6 @@
 """Application settings and environment configuration."""
 import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
@@ -34,7 +35,13 @@ class Settings(BaseSettings):
     # DPDP
     CURRENT_CONSENT_VERSION: str = "2026.1"
     
-    model_config = {"env_file": ".env", "extra": "allow"}
+    model_config = {
+        "env_file": [
+            str(Path(__file__).resolve().parent.parent / ".env"),
+            ".env",
+        ],
+        "extra": "allow",
+    }
 
 
 settings = Settings()

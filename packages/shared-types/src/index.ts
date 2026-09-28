@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./database.types";
+
 /**
  * User Roles within an organization
  */

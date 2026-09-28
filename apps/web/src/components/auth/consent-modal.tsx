@@ -43,7 +43,7 @@ export function ConsentModal({ isOpen, onConsentSuccess, user }: ConsentModalPro
   const handleAccept = async () => {
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("workkbot_token");
+      const token = user?.access_token || localStorage.getItem("workkbot_token");
       await fetch("http://localhost:8000/api/v1/consent", {
         method: "POST",
         headers: {

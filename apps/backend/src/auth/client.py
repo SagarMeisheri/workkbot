@@ -1,10 +1,15 @@
 """Supabase Admin Client & Vault Secret Management."""
-from typing import Optional, Dict, Any
+import json
+import logging
 import uuid
+from typing import Any, Dict, Optional, Tuple
+
 import jwt
 from src.config import settings
 
-# Local storage for disconnected runtime and local execution fallback
+logger = logging.getLogger("workkbot.auth.client")
+
+# Fallback store for offline test execution
 _local_vault: Dict[str, Dict[str, Any]] = {}
 _local_db: Dict[str, list] = {
     "organizations": [
@@ -37,29 +42,42 @@ class SupabaseAdminService:
 
     def get_client(self):
         """Lazy load supabase client."""
-        if self._client is None:
+        if self._client is None and self.supabase_url and self.service_role_key:
             try:
                 from supabase import create_client
                 self._client = create_client(self.supabase_url, self.service_role_key)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Could not connect to live Supabase: {e}")
                 self._client = None
         return self._client
 
-    def validate_email_domain(self, email: str) -> tuple[bool, Optional[str]]:
+    def validate_email_domain(self, email: str) -> Tuple[bool, Optional[str]]:
         """
         Validates if user email belongs to an authorized organization domain.
         Returns (is_valid, org_id).
         """
         if "@" not in email:
             return False, None
-            
+
         domain = email.split("@")[1].lower()
-        
-        # Check database or local store
+
+        client = self.get_client()
+        if client:
+            try:
+                res = client.table("organizations").select("id, domains").execute()
+                if res.data:
+                    for org in res.data:
+                        if domain in org.get("domains", []):
+                            return True, org["id"]
+                    return False, None
+            except Exception as e:
+                logger.warning(f"Error querying organizations table: {e}")
+
+        # Fallback to local store for offline testing
         for org in _local_db["organizations"]:
             if domain in org["domains"]:
                 return True, org["id"]
-                
+
         return False, None
 
     def store_vault_secret(
@@ -72,10 +90,34 @@ class SupabaseAdminService:
         Seals OAuth token in Supabase Vault (pgsodium).
         Returns vault_secret_id.
         """
-        vault_secret_id = str(uuid.uuid4())
         secret_name = f"mcp_token_{user_id}_{provider}"
-        
-        # Store in vault
+        client = self.get_client()
+        if client:
+            try:
+                res = client.rpc(
+                    "create_vault_secret",
+                    {
+                        "p_secret": json.dumps(secret_data),
+                        "p_name": secret_name,
+                        "p_description": f"MCP token for {provider} user {user_id}",
+                    },
+                ).execute()
+                if res.data:
+                    vault_secret_id = str(res.data)
+                    # Cache in local mirror for zero-latency retrieval
+                    _local_vault[vault_secret_id] = {
+                        "id": vault_secret_id,
+                        "name": secret_name,
+                        "user_id": user_id,
+                        "provider": provider,
+                        "data": secret_data,
+                    }
+                    return vault_secret_id
+            except Exception as e:
+                logger.warning(f"Error invoking create_vault_secret RPC: {e}")
+
+        # Fallback local store
+        vault_secret_id = str(uuid.uuid4())
         _local_vault[vault_secret_id] = {
             "id": vault_secret_id,
             "name": secret_name,
@@ -86,20 +128,44 @@ class SupabaseAdminService:
         return vault_secret_id
 
     def retrieve_vault_secret(self, vault_secret_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves and decrypts secret from Vault."""
+        """Retrieves and decrypts secret from Supabase Vault."""
+        client = self.get_client()
+        if client:
+            try:
+                res = client.rpc(
+                    "get_decrypted_vault_secret",
+                    {"p_secret_id": vault_secret_id},
+                ).execute()
+                if res.data:
+                    return json.loads(res.data) if isinstance(res.data, str) else res.data
+            except Exception as e:
+                logger.warning(f"Error invoking get_decrypted_vault_secret RPC: {e}")
+
         record = _local_vault.get(vault_secret_id)
         if record:
             return record["data"]
         return None
 
     def delete_vault_secret(self, vault_secret_id: str) -> bool:
-        """Deletes secret from Vault."""
+        """Deletes secret from Supabase Vault."""
+        client = self.get_client()
+        if client:
+            try:
+                res = client.rpc(
+                    "delete_vault_secret",
+                    {"p_secret_id": vault_secret_id},
+                ).execute()
+                _local_vault.pop(vault_secret_id, None)
+                return bool(res.data)
+            except Exception as e:
+                logger.warning(f"Error invoking delete_vault_secret RPC: {e}")
+
         if vault_secret_id in _local_vault:
             del _local_vault[vault_secret_id]
             return True
         return False
 
-    def delete_user_cascade(self, user_id: str) -> Dict[str, Any]:
+    def delete_user_cascade(self, user_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Atomic in-app account & data deletion (Apple Guideline 5.1.1).
         Purges auth user, profiles, consent logs, MCP connections, and Vault secrets.
@@ -111,18 +177,21 @@ class SupabaseAdminService:
         for sid in secrets_to_delete:
             self.delete_vault_secret(sid)
 
-        # 2. Purge DB records
+        # 2. Execute live Supabase DSR cascade if client available
+        client = self.get_client()
+        if client and org_id:
+            try:
+                client.rpc("execute_dsr_erasure", {
+                    "target_user_id": user_id,
+                    "executing_org_id": org_id,
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Error invoking execute_dsr_erasure RPC: {e}")
+
+        # 3. Purge DB records in memory
         _local_db["profiles"] = [p for p in _local_db["profiles"] if p["id"] != user_id]
         _local_db["user_consents"] = [c for c in _local_db["user_consents"] if c["user_id"] != user_id]
         _local_db["mcp_connections"] = [m for m in _local_db["mcp_connections"] if m["user_id"] != user_id]
-
-        # 3. Purge Auth User via Supabase Admin API if client available
-        client = self.get_client()
-        if client:
-            try:
-                client.auth.admin.delete_user(user_id)
-            except Exception:
-                pass
 
         return {
             "success": True,
@@ -147,7 +216,7 @@ class SupabaseAdminService:
                 "role": role,
                 "first_name": "Reviewer" if "reviewer" in email else "Employee",
             },
-            "exp": 2147483647,  # Far future for test tokens
+            "exp": 2147483647,
         }
         return jwt.encode(payload, settings.SUPABASE_JWT_SECRET, algorithm="HS256")
 

@@ -172,7 +172,26 @@ async def connector_oauth_callback(
     conn_id = str(uuid.uuid4())
     now_str = datetime.now(timezone.utc).isoformat()
     
-    # Remove existing active connection if replacing
+    # Store in live Supabase table
+    client = supabase_admin.get_client()
+    if client:
+        try:
+            client.table("mcp_connections").delete().eq("user_id", current_user.id).eq("provider", payload.provider).execute()
+            client.table("mcp_connections").insert({
+                "id": conn_id,
+                "user_id": current_user.id,
+                "org_id": current_user.org_id,
+                "provider": payload.provider,
+                "scopes": default_scopes,
+                "vault_secret_id": vault_secret_id,
+                "status": "active",
+                "created_at": now_str,
+                "updated_at": now_str,
+            }).execute()
+        except Exception:
+            pass
+
+    # Remove existing active connection if replacing in local store
     _local_db["mcp_connections"] = [
         c for c in _local_db["mcp_connections"]
         if not (c["user_id"] == current_user.id and c["provider"] == payload.provider)
@@ -204,6 +223,32 @@ async def connector_oauth_callback(
 @router.get("/connectors", response_model=List[McpConnectionResponse])
 async def list_user_connectors(current_user: CurrentUser = Depends(get_current_user)):
     """Lists active connected MCP integrations for the user."""
+    client = supabase_admin.get_client()
+    if client:
+        try:
+            res = (
+                client.table("mcp_connections")
+                .select("*")
+                .eq("user_id", current_user.id)
+                .eq("org_id", current_user.org_id)
+                .execute()
+            )
+            if res.data:
+                return [
+                    McpConnectionResponse(
+                        id=c["id"],
+                        user_id=c["user_id"],
+                        org_id=c["org_id"],
+                        provider=c["provider"],
+                        scopes=c.get("scopes", []),
+                        status=c.get("status", "active"),
+                        updated_at=c.get("updated_at", datetime.now(timezone.utc).isoformat()),
+                    )
+                    for c in res.data
+                ]
+        except Exception:
+            pass
+
     connections = [
         McpConnectionResponse(
             id=c["id"],
@@ -226,18 +271,39 @@ async def disconnect_connector(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Disconnects connector and purges Vault secret."""
+    target_vault_id = None
+    client = supabase_admin.get_client()
+    if client:
+        try:
+            res = (
+                client.table("mcp_connections")
+                .select("vault_secret_id")
+                .eq("id", connection_id)
+                .eq("user_id", current_user.id)
+                .execute()
+            )
+            if res.data:
+                target_vault_id = res.data[0].get("vault_secret_id")
+                if target_vault_id:
+                    supabase_admin.delete_vault_secret(target_vault_id)
+                client.table("mcp_connections").delete().eq("id", connection_id).execute()
+        except Exception:
+            pass
+
     target = None
     for c in _local_db["mcp_connections"]:
         if c["id"] == connection_id and c["user_id"] == current_user.id:
             target = c
             break
-            
-    if not target:
-        raise HTTPException(status_code=404, detail="Connector not found")
-        
-    vault_secret_id = target.get("vault_secret_id")
-    if vault_secret_id:
-        supabase_admin.delete_vault_secret(vault_secret_id)
-        
-    _local_db["mcp_connections"] = [c for c in _local_db["mcp_connections"] if c["id"] != connection_id]
-    return {"success": True, "connection_id": connection_id, "status": "revoked"}
+
+    if target:
+        vault_secret_id = target.get("vault_secret_id")
+        if vault_secret_id:
+            supabase_admin.delete_vault_secret(vault_secret_id)
+        _local_db["mcp_connections"] = [c for c in _local_db["mcp_connections"] if c["id"] != connection_id]
+        return {"success": True, "connection_id": connection_id, "status": "revoked"}
+
+    if client and target_vault_id is not None:
+        return {"success": True, "connection_id": connection_id, "status": "revoked"}
+
+    raise HTTPException(status_code=404, detail="Connector not found")

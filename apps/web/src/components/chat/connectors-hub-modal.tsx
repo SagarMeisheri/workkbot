@@ -33,7 +33,7 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
 
   const fetchConnections = async () => {
     try {
-      const token = localStorage.getItem("workkbot_token");
+      const token = user?.access_token || localStorage.getItem("workkbot_token");
       if (!token) return;
       const res = await fetch("http://localhost:8000/api/v1/auth/connectors", {
         headers: { Authorization: `Bearer ${token}` },
@@ -58,7 +58,7 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
   const handleConnect = async (connector: ConnectorDefinition) => {
     setConnectingProvider(connector.id);
     try {
-      const token = localStorage.getItem("workkbot_token");
+      const token = user?.access_token || localStorage.getItem("workkbot_token");
       if (!token) {
         alert("Please sign in first to connect tools.");
         return;
@@ -92,7 +92,7 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
 
   const handleDisconnect = async (connectionId: string) => {
     try {
-      const token = localStorage.getItem("workkbot_token");
+      const token = user?.access_token || localStorage.getItem("workkbot_token");
       if (!token) return;
       const res = await fetch(`http://localhost:8000/api/v1/auth/connectors/${connectionId}`, {
         method: "DELETE",

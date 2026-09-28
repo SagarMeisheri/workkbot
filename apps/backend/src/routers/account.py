@@ -24,7 +24,7 @@ async def delete_account_in_app(current_user: CurrentUser = Depends(get_current_
     connected MCP integrations, and hardware-encrypted Supabase Vault secrets.
     """
     try:
-        result = supabase_admin.delete_user_cascade(current_user.id)
+        result = supabase_admin.delete_user_cascade(current_user.id, current_user.org_id)
         return DeleteAccountResponse(
             success=True,
             user_id=current_user.id,

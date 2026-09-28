@@ -9,6 +9,7 @@ import { FloatingComposer } from "@/components/chat/floating-composer";
 import { SuggestionCloud } from "@/components/chat/suggestion-cloud";
 import { ConnectorsHubModal } from "@/components/chat/connectors-hub-modal";
 import { ConsentModal } from "@/components/auth/consent-modal";
+import { supabase } from "@/lib/supabase";
 
 interface Message {
   id: string;
@@ -27,21 +28,89 @@ export default function WorkspacePage() {
   const [activeThread, setActiveThread] = useState<string>("New chat");
 
   useEffect(() => {
-    // Check local auth state
-    const authData = localStorage.getItem("workkbot_auth");
-    if (authData) {
-      try {
-        const parsed = JSON.parse(authData);
-        setUser(parsed);
-        // Check if user has consented
-        const consented = localStorage.getItem("workkbot_consented");
-        if (!consented) {
-          setIsConsentOpen(true);
+    // 1. Check live Supabase Session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*, organizations(*)")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        const p = profile as any;
+        const userObj = {
+          user_id: session.user.id,
+          email: session.user.email,
+          first_name: p?.first_name || session.user.user_metadata?.first_name || "Employee",
+          org_id: p?.org_id || session.user.app_metadata?.org_id,
+          org_name: p?.organizations?.name || "Workkbot SMB India",
+          role: p?.role || "member",
+          avatar_url: p?.avatar_url || session.user.user_metadata?.avatar_url,
+          access_token: session.access_token,
+        };
+        setUser(userObj);
+
+        // Check live consent status from backend
+        try {
+          const res = await fetch("http://localhost:8000/api/v1/consent/status", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (res.ok) {
+            const consentData = await res.json();
+            if (!consentData.has_consented) {
+              setIsConsentOpen(true);
+            }
+          }
+        } catch (e) {
+          console.error("Consent check error:", e);
         }
-      } catch (e) {
-        console.error("Auth parsing error:", e);
+      } else {
+        // Fallback to local storage (for reviewer mode or cached tokens)
+        const authData = localStorage.getItem("workkbot_auth");
+        if (authData) {
+          try {
+            const parsed = JSON.parse(authData);
+            setUser(parsed);
+            const consented = localStorage.getItem("workkbot_consented");
+            if (!consented) {
+              setIsConsentOpen(true);
+            }
+          } catch (e) {
+            console.error("Auth parsing error:", e);
+          }
+        }
       }
-    }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*, organizations(*)")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        const p = profile as any;
+        setUser({
+          user_id: session.user.id,
+          email: session.user.email,
+          first_name: p?.first_name || session.user.user_metadata?.first_name || "Employee",
+          org_id: p?.org_id || session.user.app_metadata?.org_id,
+          org_name: p?.organizations?.name || "Workkbot SMB India",
+          role: p?.role || "member",
+          avatar_url: p?.avatar_url || session.user.user_metadata?.avatar_url,
+          access_token: session.access_token,
+        });
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
+        localStorage.removeItem("workkbot_auth");
+        localStorage.removeItem("workkbot_token");
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSendMessage = async (text: string, mode: "chat" | "cowork", model: string) => {
@@ -55,7 +124,7 @@ export default function WorkspacePage() {
     setActiveThread(threadTitle);
     setThreads((prev) => (prev.includes(threadTitle) ? prev : [threadTitle, ...prev]));
 
-    const token = localStorage.getItem("workkbot_token");
+    const token = user?.access_token || localStorage.getItem("workkbot_token");
 
     try {
       const response = await fetch("http://localhost:8000/api/v1/chat", {

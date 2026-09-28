@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogIn, User, Settings, Shield, Trash2, LogOut, ChevronUp } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface SidebarAuthFooterProps {
   user: {
@@ -12,6 +13,7 @@ interface SidebarAuthFooterProps {
     org_id: string;
     role: string;
     is_demo?: boolean;
+    access_token?: string;
   } | null;
   onOpenConnectors: () => void;
   onOpenConsentModal: () => void;
@@ -27,7 +29,12 @@ export function SidebarAuthFooter({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      // Ignored if offline
+    }
     localStorage.removeItem("workkbot_auth");
     localStorage.removeItem("workkbot_token");
     window.location.reload();
@@ -37,7 +44,7 @@ export function SidebarAuthFooter({
     if (!user) return;
     setDeleting(true);
     try {
-      const token = localStorage.getItem("workkbot_token");
+      const token = user?.access_token || localStorage.getItem("workkbot_token");
       await fetch("http://localhost:8000/api/v1/account/delete", {
         method: "DELETE",
         headers: {

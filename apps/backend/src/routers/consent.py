@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from src.auth.dependencies import CurrentUser, get_current_user
-from src.auth.client import _local_db
+from src.auth.client import supabase_admin, _local_db
 from src.config import settings
 
 router = APIRouter(prefix="/api/v1/consent", tags=["consent"])
@@ -52,6 +52,33 @@ class RecordConsentResponse(BaseModel):
 @router.get("/status", response_model=ConsentStatusResponse)
 async def get_consent_status(current_user: CurrentUser = Depends(get_current_user)):
     """Checks whether the authenticated user has active statutory consent."""
+    client = supabase_admin.get_client()
+    if client:
+        try:
+            res = (
+                client.table("user_consents")
+                .select("*")
+                .eq("user_id", current_user.id)
+                .eq("status", "active")
+                .order("consented_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                latest = res.data[0]
+                return ConsentStatusResponse(
+                    has_consented=True,
+                    consent_version=latest.get("consent_version", settings.CURRENT_CONSENT_VERSION),
+                    consented_at=latest.get("consented_at"),
+                    language=latest.get("language", "en"),
+                )
+            return ConsentStatusResponse(
+                has_consented=False,
+                consent_version=settings.CURRENT_CONSENT_VERSION,
+            )
+        except Exception:
+            pass
+
     consent = next(
         (c for c in _local_db["user_consents"]
          if c["user_id"] == current_user.id and c["status"] == "active"),
@@ -101,7 +128,15 @@ async def record_user_consent(
         "consented_at": now_str,
     }
     
-    # Store in DB
+    # Store in live Supabase table
+    client = supabase_admin.get_client()
+    if client:
+        try:
+            client.table("user_consents").insert(record).execute()
+        except Exception:
+            pass
+
+    # Store in local mirror
     _local_db["user_consents"].append(record)
 
     return RecordConsentResponse(
