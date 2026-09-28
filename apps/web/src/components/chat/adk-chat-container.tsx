@@ -91,6 +91,7 @@ export function useAdkStreamingChat({
         body: JSON.stringify({
           message: text,
           sessionId,
+          conversationId,
           model,
           checkpointId,
         }),

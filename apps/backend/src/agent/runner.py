@@ -48,6 +48,7 @@ class AdkRunnerSingleton:
         model_preference: Optional[str] = None,
         state_delta: Optional[Dict[str, Any]] = None,
         conversation_id: Optional[str] = None,
+        auth_token: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Executes a conversational turn using canonical Google ADK 2.0.
@@ -62,6 +63,7 @@ class AdkRunnerSingleton:
             user_id=user_id,
             org_id=org_id,
             conversation_id=conversation_id,
+            auth_token=auth_token,
         )
 
         branch_name = f"branch_{checkpoint_id[:8]}" if checkpoint_id else "main"

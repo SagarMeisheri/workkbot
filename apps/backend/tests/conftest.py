@@ -31,6 +31,7 @@ async def mock_run_turn_stream(
     model_preference: Optional[str] = None,
     state_delta: Optional[Dict[str, Any]] = None,
     conversation_id: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Deterministic, zero-cost mock for AdkRunnerSingleton.run_turn_stream.
     
@@ -43,6 +44,7 @@ async def mock_run_turn_stream(
         user_id=user_id,
         org_id=org_id,
         conversation_id=conversation_id,
+        auth_token=auth_token,
     )
 
     branch_name = f"branch_{checkpoint_id[:8]}" if checkpoint_id else "main"

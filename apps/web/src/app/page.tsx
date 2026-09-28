@@ -22,7 +22,8 @@ export default function WorkspacePage() {
   const [isConnectorsOpen, setIsConnectorsOpen] = useState(false);
   const [isConsentOpen, setIsConsentOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string>(() => `sess_${Date.now()}`);
-  const [threads, setThreads] = useState<string[]>([]);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
+  const [threads, setThreads] = useState<Array<{ id: string; title: string }>>([]);
   const [activeThread, setActiveThread] = useState<string>("New chat");
 
   const {
@@ -36,6 +37,7 @@ export default function WorkspacePage() {
   } = useAdkStreamingChat({
     user,
     sessionId,
+    conversationId,
     onConsentRequired: () => setIsConsentOpen(true),
   });
 
@@ -75,6 +77,21 @@ export default function WorkspacePage() {
           }
         } catch (e) {
           console.error("Consent check error:", e);
+        }
+
+        // Fetch user conversations
+        try {
+          const convRes = await fetch("http://localhost:8000/api/v1/conversations", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (convRes.ok) {
+            const data = await convRes.json();
+            if (data.conversations && Array.isArray(data.conversations)) {
+              setThreads(data.conversations.map((c: any) => ({ id: c.id, title: c.title })));
+            }
+          }
+        } catch (e) {
+          console.error("Fetch conversations error:", e);
         }
       } else {
         // Fallback to local storage (for reviewer mode or cached tokens)
@@ -129,7 +146,9 @@ export default function WorkspacePage() {
     const threadTitle = text.slice(0, 30);
     if (activeThread === "New chat") {
       setActiveThread(threadTitle);
-      setThreads((prev) => (prev.includes(threadTitle) ? prev : [threadTitle, ...prev]));
+      const newConvId = `conv_${Date.now()}`;
+      setConversationId(newConvId);
+      setThreads((prev) => [{ id: newConvId, title: threadTitle }, ...prev]);
     }
     await sendMessage(text, mode, model);
   };
@@ -137,6 +156,7 @@ export default function WorkspacePage() {
   const handleNewThread = () => {
     setMessages([]);
     setSessionId(`sess_${Date.now()}`);
+    setConversationId(undefined);
     setActiveThread("New chat");
   };
 
@@ -182,16 +202,20 @@ export default function WorkspacePage() {
                 <div className="mt-1 flex flex-col gap-0.5">
                   {threads.map((t, idx) => (
                     <button
-                      key={idx}
-                      onClick={() => setActiveThread(t)}
+                      key={t.id || idx}
+                      onClick={() => {
+                        setActiveThread(t.title);
+                        setConversationId(t.id);
+                        setSessionId(`sess_${t.id}`);
+                      }}
                       className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs truncate transition-colors flex items-center gap-2 ${
-                        activeThread === t
+                        activeThread === t.title
                           ? "bg-accent text-accent-foreground font-medium"
                           : "hover:bg-accent/60 text-foreground/80"
                       }`}
                     >
                       <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate">{t}</span>
+                      <span className="truncate">{t.title}</span>
                     </button>
                   ))}
                 </div>

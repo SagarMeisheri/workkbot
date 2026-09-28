@@ -1,4 +1,5 @@
 """Auth router handling Reviewer login, Google OAuth scopes, and MCP Connectors."""
+import logging
 from typing import Optional, List
 import uuid
 from datetime import datetime, timezone
@@ -8,6 +9,8 @@ from pydantic import BaseModel, Field
 from src.auth.dependencies import CurrentUser, get_current_user
 from src.auth.client import supabase_admin, _local_db
 from src.config import settings
+
+logger = logging.getLogger("workkbot.auth_router")
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -61,12 +64,30 @@ async def reviewer_login(payload: ReviewerLoginRequest):
         )
 
     reviewer_user_id = "00000000-0000-0000-0000-000000000001"
-    token = supabase_admin.generate_token_for_user(
-        user_id=reviewer_user_id,
-        email=settings.REVIEWER_EMAIL,
-        org_id=settings.REVIEWER_ORG_ID,
-        role="tool-admin",
-    )
+    token = None
+
+    # 1. Attempt live Supabase GoTrue authentication to acquire genuine cryptographic JWT
+    client = supabase_admin.get_client()
+    if client:
+        try:
+            auth_res = client.auth.sign_in_with_password({
+                "email": settings.REVIEWER_EMAIL,
+                "password": settings.REVIEWER_PASSWORD,
+            })
+            if auth_res and auth_res.session and auth_res.session.access_token:
+                token = auth_res.session.access_token
+                reviewer_user_id = auth_res.user.id
+        except Exception as e:
+            logger.info("Live Supabase reviewer login fallback: %s", e)
+
+    # 2. Fallback to offline/sandbox token generation
+    if not token:
+        token = supabase_admin.generate_token_for_user(
+            user_id=reviewer_user_id,
+            email=settings.REVIEWER_EMAIL,
+            org_id=settings.REVIEWER_ORG_ID,
+            role="tool-admin",
+        )
 
     # Ensure profile exists in database/store
     profile = next((p for p in _local_db["profiles"] if p["id"] == reviewer_user_id), None)

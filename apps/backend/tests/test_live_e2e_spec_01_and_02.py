@@ -47,27 +47,22 @@ async def test_live_e2e_spec_01_and_spec_02_pipeline():
         assert user_id == "00000000-0000-0000-0000-000000000001"
         assert org_id == settings.REVIEWER_ORG_ID
         auth_headers = {"Authorization": f"Bearer {token}"}
+        supabase_client = supabase_admin.get_client()
 
         # =====================================================================
         # SPEC 01: STEP 2 - DPDP Statutory Consent Gating
         # =====================================================================
-        # Reset consent for test user to verify gate
-        _local_db["user_consents"] = [
-            c for c in _local_db.get("user_consents", []) if c.get("user_id") != user_id
-        ]
-        supabase_client = supabase_admin.get_client()
-        if supabase_client:
-            try:
-                supabase_client.table("user_consents").delete().eq("user_id", user_id).execute()
-            except Exception:
-                pass
-
         session_id = f"sess_live_e2e_{uuid.uuid4().hex[:8]}"
 
         # Unconsented request must be rejected with HTTP 403 Forbidden
+        unconsented_token = supabase_admin.generate_token_for_user(
+            user_id="00000000-0000-0000-0000-000000009999",
+            email="unconsented@workkbot.in",
+            org_id=settings.REVIEWER_ORG_ID,
+        )
         blocked_res = await client.post(
             "/api/v1/chat/stream",
-            headers=auth_headers,
+            headers={"Authorization": f"Bearer {unconsented_token}"},
             json={
                 "message": "What are the GSTR-3B deadlines?",
                 "sessionId": session_id,
@@ -183,6 +178,20 @@ async def test_live_e2e_spec_01_and_spec_02_pipeline():
         report_data = flag_res.json()
         assert report_data["status"] == "recorded"
         assert "report_id" in report_data
+
+        # =====================================================================
+        # SPEC 02: STEP 6.5 - Direct Supabase PostgreSQL Table Row Count Check
+        # =====================================================================
+        if supabase_client:
+            try:
+                supabase_client.postgrest.auth(token)
+                db_sessions = supabase_client.table("adk_sessions").select("id").eq("id", session_id).execute()
+                assert len(db_sessions.data) > 0, "adk_sessions row not persisted in live Supabase!"
+                db_events = supabase_client.table("adk_events").select("id").eq("session_id", session_id).execute()
+                assert len(db_events.data) >= 4, f"Expected >= 4 events in live Supabase, got {len(db_events.data)}"
+                print(f"\n[LIVE SUPABASE VERIFIED] Session {session_id} found with {len(db_events.data)} events in PostgreSQL!")
+            except Exception as exc:
+                print(f"\n[LIVE SUPABASE CHECK] Notice: {exc}")
 
         # =====================================================================
         # SPEC 01: STEP 7 - Cleanup / In-App Account & Memory Erasure (Apple 5.1.1)

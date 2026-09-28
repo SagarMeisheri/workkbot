@@ -22,6 +22,7 @@ class ChatStreamRequest(BaseModel):
     parts: Optional[List[Dict[str, Any]]] = None
     checkpointId: Optional[str] = None
     sessionId: Optional[str] = None
+    conversationId: Optional[str] = None
     model: Optional[str] = None
     stateDelta: Optional[Dict[str, Any]] = None
     type: Optional[str] = "message"
@@ -45,6 +46,8 @@ def _verify_dpdp_consent(current_user: CurrentUser) -> None:
     has_consented = False
     if client:
         try:
+            if current_user.token:
+                client.postgrest.auth(current_user.token)
             res = client.table("user_consents").select("id").eq("user_id", current_user.id).eq("status", "active").execute()
             if res.data:
                 has_consented = True
@@ -95,6 +98,8 @@ async def chat_stream_endpoint(
         checkpoint_id=payload.checkpointId,
         model_preference=model_choice,
         state_delta=payload.stateDelta,
+        conversation_id=payload.conversationId,
+        auth_token=current_user.token,
     )
 
     return StreamingResponse(
@@ -116,6 +121,8 @@ async def list_conversations(
     client = supabase_admin.get_client()
     if client:
         try:
+            if current_user.token:
+                client.postgrest.auth(current_user.token)
             res = client.table("conversations").select("*").eq("user_id", current_user.id).eq("org_id", current_user.org_id).order("updated_at", desc=True).execute()
             if res.data:
                 return {"conversations": res.data}
@@ -144,11 +151,13 @@ async def create_conversation(
 
     if client:
         try:
+            if current_user.token:
+                client.postgrest.auth(current_user.token)
             res = client.table("conversations").insert(row).execute()
             if res.data:
                 return res.data[0]
         except Exception as e:
-            logger.debug("Live Supabase insert conversation fallback: %s", e)
+            logger.error("Live Supabase insert conversation fallback: %s", e)
 
     return row
 
@@ -162,6 +171,8 @@ async def get_conversation(
     client = supabase_admin.get_client()
     if client:
         try:
+            if current_user.token:
+                client.postgrest.auth(current_user.token)
             conv_res = client.table("conversations").select("*").eq("id", conversation_id).eq("user_id", current_user.id).execute()
             if conv_res.data:
                 conversation = conv_res.data[0]
@@ -195,6 +206,8 @@ async def delete_conversation(
     client = supabase_admin.get_client()
     if client:
         try:
+            if current_user.token:
+                client.postgrest.auth(current_user.token)
             client.table("conversations").delete().eq("id", conversation_id).eq("user_id", current_user.id).execute()
         except Exception as e:
             logger.debug("Live Supabase delete conversation fallback: %s", e)
@@ -212,6 +225,8 @@ async def branch_conversation(
     """Explicitly branches a conversation from a given parent checkpoint ID."""
     if not payload.checkpointId:
         raise HTTPException(status_code=400, detail="checkpointId is required to branch conversation")
+    if not payload.conversationId:
+        payload.conversationId = conversation_id
     return await chat_stream_endpoint(payload=payload, current_user=current_user)
 
 
@@ -241,11 +256,13 @@ async def report_ai_content(
     client = supabase_admin.get_client()
     if client:
         try:
+            if current_user.token:
+                client.postgrest.auth(current_user.token)
             res = client.table("ai_content_reports").insert(row).execute()
             if res.data:
                 logger.info("Apple Guideline 1.2 Report recorded: %s (reason: %s)", report_id, payload.reason)
         except Exception as e:
-            logger.debug("Live Supabase insert report fallback: %s", e)
+            logger.error("Live Supabase insert report fallback: %s", e)
 
     return {"status": "recorded", "report_id": report_id}
 
@@ -291,7 +308,12 @@ async def adk_adapter_get_session(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Loads session and its events for createAdkSessionAdapter."""
-    sess = await session_service.get_session(session_id=session_id, user_id=current_user.id, org_id=current_user.org_id)
+    sess = await session_service.get_session(
+        session_id=session_id,
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        auth_token=current_user.token,
+    )
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -321,5 +343,10 @@ async def adk_adapter_delete_session(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Deletes session for createAdkSessionAdapter."""
-    await session_service.delete_session(session_id=session_id, user_id=current_user.id, org_id=current_user.org_id)
+    await session_service.delete_session(
+        session_id=session_id,
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        auth_token=current_user.token,
+    )
     return {"status": "deleted", "id": session_id}

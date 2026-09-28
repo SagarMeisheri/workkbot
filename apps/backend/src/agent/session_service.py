@@ -58,14 +58,43 @@ class WorkkbotSession(Session):
         return hasattr(self, item)
 
 
+import contextvars
+from fastapi.encoders import jsonable_encoder
+import json
+
+def safe_json_dump(obj: Any) -> Any:
+    """Robust JSON-safe encoder for ADK objects (EventActions, types.Content, bytes)."""
+    if obj is None:
+        return {}
+    try:
+        encoded = jsonable_encoder(obj)
+        json.dumps(encoded)
+        return encoded
+    except Exception:
+        try:
+            return json.loads(json.dumps(obj, default=str))
+        except Exception:
+            return str(obj)
+
+current_session_token: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_session_token", default=None)
+_session_tokens: Dict[str, str] = {}
+
+
 class SupabaseAdkSessionService(BaseSessionService):
     """Canonical ADK 2.0 BaseSessionService backed by Supabase PostgreSQL and local mirror."""
 
     def __init__(self):
         super().__init__()
 
-    def _client(self):
-        return supabase_admin.get_client()
+    def _client(self, auth_token: Optional[str] = None, session_id: Optional[str] = None):
+        client = supabase_admin.get_client()
+        token = auth_token or current_session_token.get() or (session_id and _session_tokens.get(session_id))
+        if client and token:
+            try:
+                client.postgrest.auth(token)
+            except Exception as e:
+                logger.warning("Error setting postgrest auth token: %s", e)
+        return client
 
     async def create_session(
         self,
@@ -76,14 +105,34 @@ class SupabaseAdkSessionService(BaseSessionService):
         session_id: Optional[str] = None,
         org_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        auth_token: Optional[str] = None,
     ) -> WorkkbotSession:
         """Creates a new canonical ADK session in Supabase public.adk_sessions."""
-        client = self._client()
         sid = session_id or f"sess_{uuid.uuid4().hex[:12]}"
+        if auth_token:
+            current_session_token.set(auth_token)
+            _session_tokens[sid] = auth_token
+
+        client = self._client(auth_token=auth_token, session_id=sid)
         now_ts = time.time()
 
-        # Create linked conversation summary if not provided
-        if not conversation_id and org_id:
+        # 1. Ensure linked conversation exists in Supabase public.conversations
+        if conversation_id and org_id:
+            conv_row = {
+                "id": conversation_id,
+                "user_id": user_id,
+                "org_id": org_id,
+                "title": "New chat",
+            }
+            if client:
+                try:
+                    conv_check = client.table("conversations").select("id").eq("id", conversation_id).execute()
+                    if not conv_check.data:
+                        client.table("conversations").insert(conv_row).execute()
+                except Exception as e:
+                    logger.error("Live Supabase ensure conversation error: %s", e)
+            _local_db.setdefault("conversations", []).append(conv_row)
+        elif not conversation_id and org_id:
             conv_id = str(uuid.uuid4())
             conv_row = {
                 "id": conv_id,
@@ -95,7 +144,7 @@ class SupabaseAdkSessionService(BaseSessionService):
                 try:
                     client.table("conversations").insert(conv_row).execute()
                 except Exception as e:
-                    logger.debug("Live Supabase insert conversation error: %s", e)
+                    logger.error("Live Supabase insert conversation error: %s", e)
             _local_db.setdefault("conversations", []).append(conv_row)
             conversation_id = conv_id
 
@@ -106,11 +155,9 @@ class SupabaseAdkSessionService(BaseSessionService):
             "org_id": org_id,
             "conversation_id": conversation_id,
             "state": state or {},
-            "created_at": now_ts,
-            "updated_at": now_ts,
         }
 
-        # Persist to live Supabase if available
+        # Persist to live Supabase with Postgres TIMESTAMPTZ default now()
         if client:
             try:
                 insert_payload = {k: v for k, v in session_row.items() if v is not None}
@@ -118,7 +165,7 @@ class SupabaseAdkSessionService(BaseSessionService):
                 if res.data:
                     _local_db.setdefault("adk_sessions", []).append(res.data[0])
             except Exception as e:
-                logger.debug("Live Supabase insert adk_sessions error: %s", e)
+                logger.error("Live Supabase insert adk_sessions error: %s", e)
 
         _local_db.setdefault("adk_sessions", []).append(session_row)
 
@@ -140,8 +187,13 @@ class SupabaseAdkSessionService(BaseSessionService):
         org_id: str,
         conversation_id: Optional[str] = None,
         app_name: str = "workkbot_core",
+        auth_token: Optional[str] = None,
     ) -> WorkkbotSession:
         """Retrieves an existing session or creates a new one."""
+        if auth_token:
+            current_session_token.set(auth_token)
+            _session_tokens[session_id] = auth_token
+
         existing = await self.get_session(session_id=session_id, user_id=user_id, org_id=org_id)
         if existing:
             return existing
@@ -151,6 +203,7 @@ class SupabaseAdkSessionService(BaseSessionService):
             session_id=session_id,
             org_id=org_id,
             conversation_id=conversation_id,
+            auth_token=auth_token,
         )
 
     async def get_session(
@@ -159,13 +212,12 @@ class SupabaseAdkSessionService(BaseSessionService):
         **kwargs,
     ) -> Optional[WorkkbotSession]:
         """Retrieves session and its events from Supabase or local mirror."""
-        client = self._client()
-
         # Parse flexible arguments
         session_id = kwargs.get("session_id")
         user_id = kwargs.get("user_id")
         app_name = kwargs.get("app_name", "workkbot_core")
         org_id = kwargs.get("org_id")
+        auth_token = kwargs.get("auth_token")
 
         if not session_id and len(args) >= 1:
             session_id = args[0]
@@ -173,6 +225,8 @@ class SupabaseAdkSessionService(BaseSessionService):
             user_id = args[1]
         if not org_id and len(args) >= 3:
             org_id = args[2]
+
+        client = self._client(auth_token=auth_token, session_id=session_id)
 
         session_row = None
         events_rows: List[Dict[str, Any]] = []
@@ -199,10 +253,11 @@ class SupabaseAdkSessionService(BaseSessionService):
                 (s for s in _local_db.get("adk_sessions", []) if s["id"] == session_id),
                 None,
             )
-            if session_row:
-                events_rows = [
-                    e for e in _local_db.get("adk_events", []) if e.get("session_id") == session_id
-                ]
+
+        if not events_rows and session_id:
+            events_rows = [
+                e for e in _local_db.get("adk_events", []) if e.get("session_id") == session_id
+            ]
 
         if not session_row:
             return None
@@ -307,8 +362,6 @@ class SupabaseAdkSessionService(BaseSessionService):
         **kwargs,
     ) -> Any:
         """Appends an event to the session and persists to Supabase adk_events."""
-        client = self._client()
-
         # Check if called as canonical ADK: append_event(session, event)
         if len(args) >= 2 and isinstance(args[0], Session) and isinstance(args[1], Event):
             return await self._append_adk_event(args[0], args[1])
@@ -318,7 +371,9 @@ class SupabaseAdkSessionService(BaseSessionService):
 
         # Legacy call: append_event(session_id, author, content, parent_event_id, branch, actions, event_id)
         session_id = kwargs.get("session_id") or (args[0] if len(args) >= 1 else None)
-        author = kwargs.get("author") or (args[1] if len(args) >= 2 else "user")
+        client = self._client(session_id=session_id)
+        raw_author = kwargs.get("author") or (args[1] if len(args) >= 2 else "user")
+        author = "model" if raw_author not in ("user", "model", "system", "workkbot_core") else raw_author
         content = kwargs.get("content") or (args[2] if len(args) >= 3 else {})
         parent_event_id = kwargs.get("parent_event_id") or (args[3] if len(args) >= 4 else None)
         branch = kwargs.get("branch") or (args[4] if len(args) >= 5 else "main")
@@ -329,18 +384,19 @@ class SupabaseAdkSessionService(BaseSessionService):
             "id": event_id,
             "session_id": session_id,
             "author": author,
-            "content": content,
+            "content": safe_json_dump(content),
             "parent_event_id": parent_event_id,
             "branch": branch,
-            "actions": actions or {},
+            "actions": safe_json_dump(actions),
             "turn_complete": True,
-            "created_at": time.time(),
         }
 
-        # Deduplicate in local mirror
+        # Local mirror with float created_at for in-memory sort
+        local_row = dict(row)
+        local_row["created_at"] = time.time()
         existing = next((e for e in _local_db.get("adk_events", []) if e["id"] == event_id), None)
         if not existing:
-            _local_db.setdefault("adk_events", []).append(row)
+            _local_db.setdefault("adk_events", []).append(local_row)
 
         if client:
             try:
@@ -348,9 +404,9 @@ class SupabaseAdkSessionService(BaseSessionService):
                 if res.data:
                     return res.data[0]
             except Exception as e:
-                logger.debug("Live Supabase insert adk_events error: %s", e)
+                logger.error("Live Supabase insert adk_events error: %s", e)
 
-        return row
+        return local_row
 
     async def _append_adk_event(self, session: Session, event: Event) -> Event:
         """Canonical ADK append_event persistence."""
@@ -358,35 +414,34 @@ class SupabaseAdkSessionService(BaseSessionService):
         if event.content is None and not (event.actions and event.actions.state_delta):
             return event
 
-        client = self._client()
-        content_dump = (
-            event.content.model_dump(by_alias=True, exclude_none=True)
-            if hasattr(event.content, "model_dump")
-            else event.content
-        )
+        client = self._client(session_id=session.id)
         eid = event.id or f"evt_{uuid.uuid4().hex[:16]}"
+        raw_author = event.author
+        author = "model" if raw_author not in ("user", "model", "system", "workkbot_core") else raw_author
+
         row = {
             "id": eid,
             "session_id": session.id,
-            "author": event.author,
-            "content": content_dump,
+            "author": author,
+            "content": safe_json_dump(event.content),
             "parent_event_id": getattr(event, "parent_event_id", None),
             "branch": getattr(event, "branch", "main") or "main",
-            "actions": getattr(event, "actions", {}) or {},
+            "actions": safe_json_dump(getattr(event, "actions", {})),
             "turn_complete": getattr(event, "turn_complete", True),
-            "created_at": time.time(),
         }
 
         # Deduplicate in local mirror
+        local_row = dict(row)
+        local_row["created_at"] = time.time()
         existing = next((e for e in _local_db.get("adk_events", []) if e["id"] == eid), None)
         if not existing:
-            _local_db.setdefault("adk_events", []).append(row)
+            _local_db.setdefault("adk_events", []).append(local_row)
 
         if client:
             try:
                 client.table("adk_events").insert(row).execute()
             except Exception as e:
-                logger.debug("Live Supabase insert adk_events error: %s", e)
+                logger.error("Live Supabase insert adk_events error: %s", e)
 
         # Wrap in WorkkbotEvent
         workkbot_ev = WorkkbotEvent(
@@ -407,20 +462,22 @@ class SupabaseAdkSessionService(BaseSessionService):
         **kwargs,
     ) -> None:
         """Deletes session and cascades to events and local mirror."""
-        client = self._client()
         session_id = kwargs.get("session_id")
         user_id = kwargs.get("user_id")
+        auth_token = kwargs.get("auth_token")
 
         if not session_id and len(args) >= 1:
             session_id = args[0]
         if not user_id and len(args) >= 2:
             user_id = args[1]
 
+        client = self._client(auth_token=auth_token, session_id=session_id)
+
         if client and session_id:
             try:
                 client.table("adk_sessions").delete().eq("id", session_id).execute()
             except Exception as e:
-                logger.debug("Live Supabase delete session error: %s", e)
+                logger.error("Live Supabase delete session error: %s", e)
 
         _local_db["adk_sessions"] = [
             s for s in _local_db.get("adk_sessions", []) if s["id"] != session_id
