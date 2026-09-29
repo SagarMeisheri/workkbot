@@ -101,17 +101,17 @@ All chat decisions route through the **5 Core Frameworks**:
 ### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-02.1** | Session durability: Backend restarts preserve conversation history in Supabase | `uv run pytest apps/backend/tests/test_session_durability.py` | [ ] |
-| **VAL-02.2** | Event tree branching: Editing an earlier turn branches without overwriting prior events | `uv run pytest apps/backend/tests/test_event_branching.py` | [ ] |
-| **VAL-02.3** | Tenant isolation: Org A user cannot read conversations of Org B via Supabase RLS | `uv run pytest apps/backend/tests/test_conversation_tenant_isolation.py` | [ ] |
-| **VAL-02.4** | Gateway failover: Simulated 429 triggers transparent fallback to secondary LLM model | `uv run pytest apps/backend/tests/test_llm_gateway_failover.py` | [ ] |
+| **VAL-02.1** | Session durability: Backend restarts preserve conversation history in Supabase | `uv run pytest apps/backend/tests/agent/test_session_durability.py` | [ ] |
+| **VAL-02.2** | Event tree branching: Editing an earlier turn branches without overwriting prior events | `uv run pytest apps/backend/tests/agent/test_event_branching.py` | [ ] |
+| **VAL-02.3** | Tenant isolation: Org A user cannot read conversations of Org B via Supabase RLS | `uv run pytest apps/backend/tests/agent/test_conversation_tenant_isolation.py` | [ ] |
+| **VAL-02.4** | Gateway failover: Simulated 429 triggers transparent fallback to secondary LLM model | `uv run pytest apps/backend/tests/agent/test_llm_gateway_failover.py` | [ ] |
 
 ### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-02.5** | Real Gemini 2.0 Flash token-by-token stream over HTTP/2 SSE with TTFT < 800ms | `uv run pytest -m live_gemini apps/backend/tests/test_chat_stream.py` | [ ] |
-| **VAL-02.6** | Gemini thinking/reasoning blocks stream and parse into assistant-ui message state | `uv run pytest -m live_gemini apps/backend/tests/test_live_e2e_spec_01_and_02.py` | [ ] |
-| **VAL-02.7** | Submitting AI Flag/Report modal inserts incident record into `public.ai_content_reports` | `uv run pytest apps/backend/tests/test_ai_content_reporting.py` | [ ] |
+| **VAL-02.5** | Real Gemini 2.0 Flash token-by-token stream over HTTP/2 SSE with TTFT < 800ms | `uv run pytest -m live_gemini apps/backend/tests/agent/test_chat_stream.py` | [ ] |
+| **VAL-02.6** | Gemini thinking/reasoning blocks stream and parse into assistant-ui message state | `uv run pytest -m live_gemini apps/backend/tests/integration/test_live_e2e_spec_01_and_02.py` | [ ] |
+| **VAL-02.7** | Submitting AI Flag/Report modal inserts incident record into `public.ai_content_reports` | `uv run pytest apps/backend/tests/auth/test_ai_content_reporting.py` | [ ] |
 
 ### **Tier 3: UI & Front-End E2E Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |

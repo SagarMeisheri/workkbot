@@ -135,19 +135,19 @@ An interactive **Plus (`+`) Icon** is positioned directly inside the bottom-left
 ### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-01.1** | Email with unapproved domain (`user@gmail.com`) is rejected with 403 Forbidden | `uv run pytest apps/backend/tests/test_auth_domain_whitelist.py` | [ ] |
-| **VAL-01.2** | Google OAuth scope validator strictly permits only basic identity (`openid`, `email`, `profile`) | `uv run pytest apps/backend/tests/test_google_oauth_scopes.py` | [ ] |
-| **VAL-01.3** | Multi-tenant isolation verified: Org A cannot read Org B MCP connections or secrets | `uv run pytest apps/backend/tests/test_mcp_tenant_isolation.py` | [ ] |
+| **VAL-01.1** | Email with unapproved domain (`user@gmail.com`) is rejected with 403 Forbidden | `uv run pytest apps/backend/tests/auth/test_auth_domain_whitelist.py` | [ ] |
+| **VAL-01.2** | Google OAuth scope validator strictly permits only basic identity (`openid`, `email`, `profile`) | `uv run pytest apps/backend/tests/auth/test_google_oauth_scopes.py` | [ ] |
+| **VAL-01.3** | Multi-tenant isolation verified: Org A cannot read Org B MCP connections or secrets | `uv run pytest apps/backend/tests/gateway/test_mcp_tenant_isolation.py` | [ ] |
 
 ### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-01.4** | Reviewer credentials (`apple-reviewer@workkbot.in`) authenticate against live Supabase Auth & demo tenant (Apple 2.1) | `uv run pytest apps/backend/tests/test_reviewer_login.py` | [ ] |
-| **VAL-01.5** | First-time unconsented user is blocked from chat stream until DPDP consent is signed (Apple 5.1.2i) | `uv run pytest apps/backend/tests/test_dpdp_consent_gate.py` | [ ] |
-| **VAL-01.6** | Zoho OAuth code exchange encrypts tokens in Supabase Vault (`pgsodium`) and verifies retrieval | `uv run pytest apps/backend/tests/test_zoho_oauth_vault.py` | [ ] |
-| **VAL-01.7** | Token delegation retrieves decrypted Vault secret and provisions bearer headers for Agentgateway | `uv run pytest apps/backend/tests/test_agentgateway_token_delegation.py` | [ ] |
-| **VAL-01.8** | Atomic account deletion cascades through live Supabase Auth, profiles, and Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/test_account_deletion_flow.py` | [ ] |
-| **VAL-01.9** | End-to-end live pipeline verifies Reviewer Auth -> DPDP Consent -> Vault -> Account Deletion | `uv run pytest apps/backend/tests/test_live_e2e_spec_01_and_02.py` | [ ] |
+| **VAL-01.4** | Reviewer credentials (`apple-reviewer@workkbot.in`) authenticate against live Supabase Auth & demo tenant (Apple 2.1) | `uv run pytest apps/backend/tests/auth/test_reviewer_login.py` | [ ] |
+| **VAL-01.5** | First-time unconsented user is blocked from chat stream until DPDP consent is signed (Apple 5.1.2i) | `uv run pytest apps/backend/tests/auth/test_dpdp_consent_gate.py` | [ ] |
+| **VAL-01.6** | Zoho OAuth code exchange encrypts tokens in Supabase Vault (`pgsodium`) and verifies retrieval | `uv run pytest apps/backend/tests/auth/test_zoho_oauth_vault.py` | [ ] |
+| **VAL-01.7** | Token delegation retrieves decrypted Vault secret and provisions bearer headers for Agentgateway | `uv run pytest apps/backend/tests/gateway/test_agentgateway_token_delegation.py` | [ ] |
+| **VAL-01.8** | Atomic account deletion cascades through live Supabase Auth, profiles, and Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/auth/test_account_deletion_flow.py` | [ ] |
+| **VAL-01.9** | End-to-end live pipeline verifies Reviewer Auth -> DPDP Consent -> Vault -> Account Deletion | `uv run pytest apps/backend/tests/integration/test_live_e2e_spec_01_and_02.py` | [ ] |
 
 ### **Tier 3: UI & Front-End E2E Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |

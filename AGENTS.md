@@ -32,7 +32,7 @@ Every code modification, feature addition, or architectural refactor in Workkbot
   ```
 - **Run Specific Test**:
   ```bash
-  uv run pytest apps/backend/tests/test_reviewer_login.py
+  uv run pytest apps/backend/tests/auth/test_reviewer_login.py
   ```
 - **Start Backend Dev Server (from Root)**:
   ```bash

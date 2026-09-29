@@ -167,23 +167,23 @@ To satisfy statutory storage requirements under **DPDP Act 2023 Section 8(5) (Ru
 ### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.1** | Presidio Tier-1 with spaCy NLP model: Contextual NER (`PERSON`, `LOCATION`) and custom Indian recognizers (Aadhaar Verhoeff checksum, PAN, UPI, mobile) redact accurately | `uv run pytest apps/backend/tests/test_pii_fast_path.py` | [x] PASS |
-| **VAL-03.2** | Reversible tokenization: `<EMAIL_1>` and `<IN_PAN_1>` map to ephemeral session vault | `uv run pytest apps/backend/tests/test_pii_vault_lifecycle.py` | [x] PASS |
-| **VAL-03.3** | Tool rehydration: ADK `before_tool` replaces tokens with real PII before tool dispatch | `uv run pytest apps/backend/tests/test_tool_rehydration.py` | [x] PASS |
-| **VAL-03.4** | Tool output masking: ADK `after_tool` redacts newly returned PII before re-entering LLM context | `uv run pytest apps/backend/tests/test_tool_output_masking.py` | [x] PASS |
+| **VAL-03.1** | Presidio Tier-1 with spaCy NLP model: Contextual NER (`PERSON`, `LOCATION`) and custom Indian recognizers (Aadhaar Verhoeff checksum, PAN, UPI, mobile) redact accurately | `uv run pytest apps/backend/tests/compliance/test_pii_fast_path.py` | [x] PASS |
+| **VAL-03.2** | Reversible tokenization: `<EMAIL_1>` and `<IN_PAN_1>` map to ephemeral session vault | `uv run pytest apps/backend/tests/compliance/test_pii_vault_lifecycle.py` | [x] PASS |
+| **VAL-03.3** | Tool rehydration: ADK `before_tool` replaces tokens with real PII before tool dispatch | `uv run pytest apps/backend/tests/compliance/test_tool_rehydration.py` | [x] PASS |
+| **VAL-03.4** | Tool output masking: ADK `after_tool` redacts newly returned PII before re-entering LLM context | `uv run pytest apps/backend/tests/compliance/test_tool_output_masking.py` | [x] PASS |
 
 ### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.5** | Live Google Cloud DLP API in `asia-south1` detects Indian Aadhaar, PAN, and GST numbers | `uv run pytest apps/backend/tests/test_live_cloud_dlp.py` | [x] PASS |
-| **VAL-03.6** | Live Supabase `execute_dsr_erasure()` RPC purges sessions, events, memory, and anonymizes audit records | `uv run pytest apps/backend/tests/test_dsr_erasure_cascade.py` | [x] PASS |
-| **VAL-03.7** | Backend `/api/v1/account/delete` atomically deletes live Supabase Auth user & Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/test_in_app_account_erasure.py` | [x] PASS |
-| **VAL-03.8** | Security events write CERT-In compliant structured JSON to live Google Cloud Logging | `uv run pytest apps/backend/tests/test_cert_in_logging.py` | [x] PASS |
+| **VAL-03.5** | Live Google Cloud DLP API in `asia-south1` detects Indian Aadhaar, PAN, and GST numbers | `uv run pytest apps/backend/tests/integration/test_live_cloud_dlp.py` | [x] PASS |
+| **VAL-03.6** | Live Supabase `execute_dsr_erasure()` RPC purges sessions, events, memory, and anonymizes audit records | `uv run pytest apps/backend/tests/compliance/test_dsr_erasure_cascade.py` | [x] PASS |
+| **VAL-03.7** | Backend `/api/v1/account/delete` atomically deletes live Supabase Auth user & Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/compliance/test_in_app_account_erasure.py` | [x] PASS |
+| **VAL-03.8** | Security events write CERT-In compliant structured JSON to live Google Cloud Logging | `uv run pytest apps/backend/tests/compliance/test_cert_in_logging.py` | [x] PASS |
 
 ### **Tier 3: UI & Front-End E2E Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.9** | Chat stream renders rehydrated text to user (e.g. Rahul, PAN), never displaying raw tokens like `<IN_PAN_1>` | `uv run pytest apps/backend/tests/test_chat_pii_lifecycle.py` | [x] PASS |
+| **VAL-03.9** | Chat stream renders rehydrated text to user (e.g. Rahul, PAN), never displaying raw tokens like `<IN_PAN_1>` | `uv run pytest apps/backend/tests/compliance/test_chat_pii_lifecycle.py` | [x] PASS |
 | **VAL-03.10** | Employee Privacy portal (`/settings/privacy`) displays DPDP statutory notices and DSR export buttons | `apps/web/src/app/settings/privacy/page.tsx` & typecheck | [x] PASS |
 | **VAL-03.11** | Clicking **[Delete Account & Purge Data]** opens confirmation modal and redirects to `/login` | `apps/web/src/components/sidebar/sidebar-auth-footer.tsx` | [x] PASS |
 
