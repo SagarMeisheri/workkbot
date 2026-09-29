@@ -103,12 +103,23 @@ export function SidebarAuthFooter({
           <button
             onClick={() => {
               setShowMenu(false);
+              router.push("/settings/privacy");
+            }}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-accent text-left transition-colors"
+          >
+            <Shield className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>DPDP Privacy & Erasure</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setShowMenu(false);
               onOpenConsentModal();
             }}
             className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-accent text-left transition-colors"
           >
             <Shield className="w-3.5 h-3.5 text-amber-600 dark:text-amber-500" />
-            <span>DPDP Privacy Notice</span>
+            <span>Statutory Disclosures</span>
           </button>
 
           <div className="my-1 border-t border-border" />

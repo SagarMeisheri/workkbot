@@ -19,6 +19,8 @@ from google.genai import types
 from src.agent.agent import core_agent
 from src.agent.model_tier import ModelTier, model_router
 from src.agent.session_service import WorkkbotEvent, session_service
+from src.compliance.callbacks import pii_anonymize_callback
+from src.compliance.session_pii_vault import session_pii_vault
 from src.config import settings
 
 logger = logging.getLogger("workkbot.runner")
@@ -78,10 +80,13 @@ class AdkRunnerSingleton:
             branch_name,
         )
 
-        # 3. Prepare user message in canonical google.genai types.Content format
+        # 2b. Sanitize prompt text & register in ephemeral SessionPiiVault (Spec 03, R03.1b)
+        sanitized_message, _ = pii_anonymize_callback(session_id, message)
+
+        # 3. Prepare user message in canonical google.genai types.Content format with tokenized text
         new_message = types.Content(
             role="user",
-            parts=[types.Part.from_text(text=message)],
+            parts=[types.Part.from_text(text=sanitized_message)],
         )
 
         model_event_id = f"evt_{uuid.uuid4().hex[:12]}_m"
@@ -115,7 +120,9 @@ class AdkRunnerSingleton:
                             part_dict = {"thought": True, "text": thought_text}
                         elif getattr(part, "text", None):
                             text_str = part.text
-                            part_dict = {"text": text_str}
+                            # Rehydrate tokens in model response for user presentation (Spec 03, R03.1 Step 8)
+                            rehydrated_text = session_pii_vault.rehydrate_text(session_id, text_str)
+                            part_dict = {"text": rehydrated_text}
                         if part_dict:
                             parts_data.append(part_dict)
 

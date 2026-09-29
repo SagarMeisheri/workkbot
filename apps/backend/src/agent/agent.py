@@ -20,6 +20,11 @@ Your core operating standards:
 try:
     from google.adk import Agent
     from google.adk.agents import LlmAgent
+    from src.compliance.callbacks import (
+        pii_anonymize_callback,
+        tool_rehydration_callback,
+        tool_output_mask_callback,
+    )
 
     # Canonical Google ADK 2.0 LlmAgent instance
     root_agent = Agent(
@@ -28,6 +33,9 @@ try:
         description="Sovereign AI enterprise coworker for Indian SMBs and global teams.",
         instruction=WORKKBOT_SYSTEM_INSTRUCTION,
         tools=[],
+        before_model_callback=pii_anonymize_callback,
+        before_tool_callback=tool_rehydration_callback,
+        after_tool_callback=tool_output_mask_callback,
     )
 except ImportError:
     # Fallback definition when google-adk is not yet synced in local runner

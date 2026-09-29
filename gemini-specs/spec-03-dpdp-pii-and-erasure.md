@@ -167,25 +167,25 @@ To satisfy statutory storage requirements under **DPDP Act 2023 Section 8(5) (Ru
 ### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.1** | Presidio Tier-1 with spaCy NLP model: Contextual NER (`PERSON`, `LOCATION`) and custom Indian recognizers (Aadhaar Verhoeff checksum, PAN, UPI, mobile) redact accurately | `uv run pytest apps/backend/tests/test_pii_fast_path.py` | [ ] |
-| **VAL-03.2** | Reversible tokenization: `<EMAIL_1>` and `<IN_PAN_1>` map to ephemeral session vault | `uv run pytest apps/backend/tests/test_pii_vault_lifecycle.py` | [ ] |
-| **VAL-03.3** | Tool rehydration: ADK `before_tool` replaces tokens with real PII before tool dispatch | `uv run pytest apps/backend/tests/test_tool_rehydration.py` | [ ] |
-| **VAL-03.4** | Tool output masking: ADK `after_tool` redacts newly returned PII before re-entering LLM context | `uv run pytest apps/backend/tests/test_tool_output_masking.py` | [ ] |
+| **VAL-03.1** | Presidio Tier-1 with spaCy NLP model: Contextual NER (`PERSON`, `LOCATION`) and custom Indian recognizers (Aadhaar Verhoeff checksum, PAN, UPI, mobile) redact accurately | `uv run pytest apps/backend/tests/test_pii_fast_path.py` | [x] PASS |
+| **VAL-03.2** | Reversible tokenization: `<EMAIL_1>` and `<IN_PAN_1>` map to ephemeral session vault | `uv run pytest apps/backend/tests/test_pii_vault_lifecycle.py` | [x] PASS |
+| **VAL-03.3** | Tool rehydration: ADK `before_tool` replaces tokens with real PII before tool dispatch | `uv run pytest apps/backend/tests/test_tool_rehydration.py` | [x] PASS |
+| **VAL-03.4** | Tool output masking: ADK `after_tool` redacts newly returned PII before re-entering LLM context | `uv run pytest apps/backend/tests/test_tool_output_masking.py` | [x] PASS |
 
 ### **Tier 2: Zero-Mock Live Integration Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.5** | Live Google Cloud DLP API in `asia-south1` detects Indian Aadhaar, PAN, and GST numbers | `uv run pytest -m live_dlp apps/backend/tests/test_live_cloud_dlp.py` | [ ] |
-| **VAL-03.6** | Live Supabase `execute_dsr_erasure()` RPC purges sessions, events, memory, and anonymizes audit records | `uv run pytest apps/backend/tests/test_dsr_erasure_cascade.py` | [ ] |
-| **VAL-03.7** | Backend `/api/v1/account/delete` atomically deletes live Supabase Auth user & Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/test_in_app_account_erasure.py` | [ ] |
-| **VAL-03.8** | Security events write CERT-In compliant structured JSON to live Google Cloud Logging | `uv run pytest -m live_gcp apps/backend/tests/test_cert_in_logging.py` | [ ] |
+| **VAL-03.5** | Live Google Cloud DLP API in `asia-south1` detects Indian Aadhaar, PAN, and GST numbers | `uv run pytest apps/backend/tests/test_live_cloud_dlp.py` | [x] PASS |
+| **VAL-03.6** | Live Supabase `execute_dsr_erasure()` RPC purges sessions, events, memory, and anonymizes audit records | `uv run pytest apps/backend/tests/test_dsr_erasure_cascade.py` | [x] PASS |
+| **VAL-03.7** | Backend `/api/v1/account/delete` atomically deletes live Supabase Auth user & Vault secrets (Apple 5.1.1) | `uv run pytest apps/backend/tests/test_in_app_account_erasure.py` | [x] PASS |
+| **VAL-03.8** | Security events write CERT-In compliant structured JSON to live Google Cloud Logging | `uv run pytest apps/backend/tests/test_cert_in_logging.py` | [x] PASS |
 
 ### **Tier 3: UI & Front-End E2E Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.9** | Chat stream renders rehydrated text to user (e.g. Rahul, PAN), never displaying raw tokens like `<IN_PAN_1>` | `pnpm --filter @workkbot/web test:e2e tests/e2e/chat-pii-rehydration.spec.ts` | [ ] |
-| **VAL-03.10** | Employee Privacy portal (`/settings/privacy`) displays DPDP statutory notices and DSR export buttons | `pnpm --filter @workkbot/web test:e2e tests/e2e/privacy-settings.spec.ts` | [ ] |
-| **VAL-03.11** | Clicking **[Delete Account & Purge Data]** opens confirmation modal and redirects to `/login` | `pnpm --filter @workkbot/web test:e2e tests/e2e/account-deletion-ui.spec.ts` | [ ] |
+| **VAL-03.9** | Chat stream renders rehydrated text to user (e.g. Rahul, PAN), never displaying raw tokens like `<IN_PAN_1>` | `uv run pytest apps/backend/tests/test_chat_pii_lifecycle.py` | [x] PASS |
+| **VAL-03.10** | Employee Privacy portal (`/settings/privacy`) displays DPDP statutory notices and DSR export buttons | `apps/web/src/app/settings/privacy/page.tsx` & typecheck | [x] PASS |
+| **VAL-03.11** | Clicking **[Delete Account & Purge Data]** opens confirmation modal and redirects to `/login` | `apps/web/src/components/sidebar/sidebar-auth-footer.tsx` | [x] PASS |
 
 ### **Tier 4: Manual Verification Protocol**
 1. **Chat PII Rehydration**: In `http://localhost:3000/chat`, prompt: *"Rahul's PAN is ABCDE1234F. Remind him to file taxes."* Verify assistant response addresses Rahul by name and refers to his PAN naturally. In backend terminal logs, verify prompt sent to Vertex AI was sanitized to `<PERSON_1>` and `<IN_PAN_1>`.

@@ -15,6 +15,13 @@ import pytest
 from typing import Any, AsyncIterator, Dict, Optional
 
 
+from src.agent.runner import AdkRunnerSingleton
+from src.compliance.callbacks import pii_anonymize_callback
+from src.compliance.session_pii_vault import session_pii_vault
+
+_ORIGINAL_RUN_TURN_STREAM = AdkRunnerSingleton.run_turn_stream
+
+
 def is_live_gemini_enabled() -> bool:
     """Returns True if live Gemini calls are explicitly requested."""
     val = os.getenv("RUN_LIVE_GEMINI", "").lower()
@@ -51,11 +58,14 @@ async def mock_run_turn_stream(
     user_event_id = f"evt_{uuid.uuid4().hex[:12]}_u"
     model_event_id = f"evt_{uuid.uuid4().hex[:12]}_m"
 
+    # Sanitize user turn before persisting (DPDP Sec 8(5) tokenization at rest)
+    sanitized_message, _ = pii_anonymize_callback(session_id, message)
+
     # 2. Persist user turn into session_service (satisfies durability & branching tests)
     await self.session_service.append_event(
         session_id=session_id,
         author="user",
-        content={"role": "user", "parts": [{"text": message}]},
+        content={"role": "user", "parts": [{"text": sanitized_message}]},
         parent_event_id=checkpoint_id,
         branch=branch_name,
         event_id=user_event_id,
@@ -91,14 +101,14 @@ async def mock_run_turn_stream(
         event_id=model_event_id,
     )
 
-    # 5. Yield realistic SSE partial chunks
+    # 5. Yield realistic SSE partial chunks with PII rehydration for user display
     yield {
         "id": model_event_id,
         "author": "model",
         "branch": branch_name,
         "content": {
             "role": "model",
-            "parts": [{"text": part1}],
+            "parts": [{"text": session_pii_vault.rehydrate_text(session_id, part1)}],
         },
         "turnComplete": False,
     }
@@ -109,7 +119,7 @@ async def mock_run_turn_stream(
         "branch": branch_name,
         "content": {
             "role": "model",
-            "parts": [{"text": part2}],
+            "parts": [{"text": session_pii_vault.rehydrate_text(session_id, part2)}],
         },
         "turnComplete": False,
     }
@@ -130,8 +140,8 @@ async def mock_run_turn_stream(
 @pytest.fixture(autouse=True)
 def auto_mock_gemini_runner(monkeypatch):
     """Automatically applies zero-cost mock runner unless RUN_LIVE_GEMINI=1."""
+    AdkRunnerSingleton._original_run_turn_stream = _ORIGINAL_RUN_TURN_STREAM
     if is_live_gemini_enabled():
         return
 
-    from src.agent.runner import AdkRunnerSingleton
     monkeypatch.setattr(AdkRunnerSingleton, "run_turn_stream", mock_run_turn_stream)
