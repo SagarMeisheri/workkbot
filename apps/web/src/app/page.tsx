@@ -13,6 +13,7 @@ import { useAdkStreamingChat } from "@/components/chat/adk-chat-container";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
+import { MarkdownContent } from "@/components/chat/markdown-content";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/config";
 
@@ -277,13 +278,21 @@ export default function WorkspacePage() {
                     )}
 
                     <div
-                      className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] whitespace-pre-wrap ${
+                      className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] ${
                         msg.role === "user"
-                          ? "bg-primary text-primary-foreground rounded-br-xs"
+                          ? "bg-primary text-primary-foreground rounded-br-xs whitespace-pre-wrap"
                           : "bg-muted/70 text-foreground border border-border/60 rounded-bl-xs shadow-2xs"
                       }`}
                     >
-                      {msg.content || (isStreaming ? "Thinking..." : "")}
+                      {msg.role === "assistant" ? (
+                        msg.content ? (
+                          <MarkdownContent content={msg.content} />
+                        ) : isStreaming ? (
+                          <span className="text-muted-foreground animate-pulse">Thinking...</span>
+                        ) : null
+                      ) : (
+                        msg.content
+                      )}
                     </div>
 
                     {/* Action Bar with Apple 1.2 Moderation Flag & Regenerate */}
