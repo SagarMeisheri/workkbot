@@ -22,7 +22,7 @@ Workkbot resolves this by routing all privacy, redaction, and erasure decisions 
 
 | Framework | Core Responsibility in DPDP & Redaction | Security & Mobile Approval Guarantee |
 |---|---|---|
-| **1. Supabase** | `execute_dsr_erasure()` PostgreSQL RPC; `public.user_consents`; `auth.admin.deleteUser()`. | Complete atomic data purging across tables and `pgvector`; hard deletion meets Apple Guideline 5.1.1. |
+| **1. Supabase** | `execute_dsr_erasure()` PostgreSQL RPC; `public.user_consents`; `public.adk_events` tokenized storage; `auth.admin.deleteUser()`. | Complies with DPDP Sec 8(5) & Aadhaar Act Sec 29: zero plaintext Aadhaar/PAN in chat tables at rest; complete atomic data purging across tables and `pgvector`; hard deletion meets Apple Guideline 5.1.1. |
 | **2. Google Cloud Platform (GCP)** | Cloud Sensitive Data Protection (DLP API in Mumbai); Google Cloud Logging structured audit sinks for CERT-In. | Data stays in `asia-south1`; CERT-In incident logs retain 7-year immutable retention via BigQuery export. |
 | **3. Google ADK 2.0** | `before_model` (PII tokenization), `before_tool` (PII rehydration), and `after_tool` (output masking) callbacks. | Reversible in-session tokenization prevents model from seeing raw PII while preserving tool execution accuracy. |
 | **4. assistant-ui** | Visual PII redaction badges in message parts; in-app Privacy Portal with one-click **[Delete Account & Purge Data]** button. | Seamless web and mobile native (`@assistant-ui/react-native`) rendering; fulfills Apple 5.1.1 and 5.1.2i requirements. |
@@ -35,16 +35,16 @@ Workkbot resolves this by routing all privacy, redaction, and erasure decisions 
 ### Files to Create / Update:
 * `apps/backend/src/compliance/`
   * `dlp_engine.py`: Google Cloud Sensitive Data Protection (DLP API) client inspecting Indian infoTypes (`INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER`).
-  * `presidio_engine.py`: Microsoft Presidio `AnalyzerEngine` with custom regex recognizers for UPI and Verhoeff-checksummed Aadhaar for zero-latency local fast-path filtering.
-  * `session_pii_vault.py`: In-memory, ephemeral key-value vault mapping token IDs (`<EMAIL_1>`) to original sensitive strings for the active session.
+  * `presidio_engine.py`: Microsoft Presidio `AnalyzerEngine` powered by full spaCy NLP models (`en_core_web_sm` / `en_core_web_md`) for deep Named Entity Recognition (`PERSON`, `LOCATION`, `ORGANIZATION`), combined with custom Indian recognizers for UPI, Verhoeff-checksummed Aadhaar, Indian PAN, phone, and email.
+  * `session_pii_vault.py`: Ephemeral in-memory key-value vault mapping token IDs (`<EMAIL_1>`) to original sensitive strings for the active session, with optional encrypted sealing in Supabase Vault (`pgsodium`) for cross-session rehydration.
   * `callbacks/`
-    * `pii_anonymize_callback.py`: ADK `before_model` callback scanning prompt and replacing PII with reversible tokens.
+    * `pii_anonymize_callback.py`: ADK `before_model` callback scanning prompt, writing tokenized content to `adk_events`, and replacing PII with reversible tokens.
     * `tool_rehydration_callback.py`: ADK `before_tool` callback intercepting tool arguments and restoring original PII before calling MCP servers.
     * `tool_output_mask_callback.py`: ADK `after_tool` callback masking any new PII returned in tool outputs before re-entering LLM context.
   * `dsr_service.py`: Automated Data Subject Request (DSR) erasure and export pipeline using Supabase Admin client.
   * `cert_in_logger.py`: Security event logging formatted for CERT-In incident reporting to Google Cloud Logging.
 * `supabase/migrations/20260927000003_dsr_erasure.sql`:
-  * PostgreSQL RPC function `execute_dsr_erasure(target_user_id UUID, executing_org_id UUID)` that atomically cascades deletion across sessions, events, memory items, and pseudonymizes audit records.
+  * PostgreSQL RPC function `execute_dsr_erasure(target_user_id UUID, executing_org_id UUID)` that atomically cascades deletion across `adk_sessions`, `adk_events`, `conversations`, `memory_items`, `vault.secrets`, and pseudonymizes audit records.
 * `apps/web/src/app/settings/privacy/page.tsx`: Employee Privacy & DPDP DSR portal.
 * `apps/mobile/src/screens/PrivacyScreen.tsx`: Native mobile privacy and account deletion interface.
 
@@ -61,6 +61,7 @@ Workkbot resolves this by routing all privacy, redaction, and erasure decisions 
 [2. Cloud DLP / Presidio + In-Session PII Vault (GCP + ADK before_model)]
   • Detects: Rahul -> <PERSON_1>, rahul@acme.in -> <EMAIL_1>, ABCDE1234F -> <IN_PAN_1>
   • Stores in Ephemeral Vault: { "<EMAIL_1>": "rahul@acme.in", "<IN_PAN_1>": "ABCDE1234F" }
+  • Writes to Supabase public.adk_events: Tokenized content (no plaintext PII at rest)
                      │
                      ▼ (Sanitized Prompt to Vertex AI via Agentgateway)
   "Send invoice to <PERSON_1> at <EMAIL_1> with PAN <IN_PAN_1>"
@@ -94,12 +95,22 @@ Workkbot resolves this by routing all privacy, redaction, and erasure decisions 
   "I have successfully sent invoice INV-101 to Rahul at rahul@acme.in."
 ```
 
-### R03.2: Two-Tier Indian PII Engine (Regex Fast-Path + Cloud DLP)
-1. **Tier 1 (Zero-Latency Local Fast-Path via Presidio)**:
-   - **Indian Aadhaar**: 12-digit pattern validated via Verhoeff checksum algorithm.
-   - **Indian PAN**: Regex `\b[A-Z]{5}[0-9]{4}[A-Z]\b`.
-   - **UPI VPA**: Regex `\b[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}\b`.
-   - **Indian Mobile**: Regex `\b(?:\+91|91|0)?[6-9]\d{9}\b`.
+### R03.1b: Database Storage Architecture at Rest (DPDP Act 2023 Sec 8(5) & Aadhaar Act 2016)
+To satisfy statutory storage requirements under **DPDP Act 2023 Section 8(5) (Rule 6: Reasonable Security Safeguards - virtual tokenization/encryption)** and **Aadhaar Act 2016 Section 29 (criminal prohibition on storing raw 12-digit Aadhaar numbers in standard application tables)**:
+1. **Chat Events (`public.adk_events`)**: Stored in tokenized form (`<IN_AADHAAR_1>`, `<IN_PAN_1>`, `<EMAIL_1>`). If the PostgreSQL database is ever inspected, dumped, or compromised, zero raw citizen identifiers exist in plaintext chat rows.
+2. **Ephemeral In-Memory Vault (`SessionPiiVault`)**: Holds token-to-PII dictionary in backend memory strictly during active session turns to fulfill ERP tool execution and user stream rehydration.
+3. **Cross-Session Storage**: For multi-turn persistence across sessions, the token dictionary is sealed in **Supabase Vault (`pgsodium`)** as encrypted secrets keyed to `(user_id, conversation_id)`. Plaintext values are never written to unencrypted columns.
+4. **Cryptographic Shredding on Erasure**: When `execute_dsr_erasure()` runs, destroying the Vault secret instantly shreds any cryptographic ability to re-identify historical tokens.
+
+### R03.2: Two-Tier Indian PII Engine (Presidio + Full spaCy NLP + Cloud DLP)
+1. **Tier 1 (Presidio with Full spaCy NLP Engine Pipeline)**:
+   - **spaCy NLP Model Integration**: Presidio initializes with the standard spaCy NLP pipeline (`en_core_web_sm` / `en_core_web_md`), providing comprehensive contextual Named Entity Recognition (NER) for person names (`PERSON`), physical addresses/locations (`LOCATION`), and organizations (`ORGANIZATION`).
+   - **Custom Indian Pattern Recognizers**:
+     - **Indian Aadhaar**: 12-digit pattern validated via Verhoeff checksum algorithm ($D_5$ dihedral group tables) to eliminate false positives.
+     - **Indian PAN**: Regex `\b[A-Z]{5}[0-9]{4}[A-Z]\b`.
+     - **UPI VPA**: Regex `\b[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}\b`.
+     - **Indian Mobile**: Regex `\b(?:\+91|91|0)?[6-9]\d{9}\b`.
+     - **Email**: RFC 5322 regex pattern.
 2. **Tier 2 (Google Cloud Sensitive Data Protection API)**:
    - Executes asynchronously for unstructured document scans using `INDIA_AADHAAR_NUMBER`, `INDIA_PAN_NUMBER`, `INDIA_GST_NUMBER` infoTypes in Mumbai (`asia-south1`).
 
@@ -110,14 +121,22 @@ Workkbot resolves this by routing all privacy, redaction, and erasure decisions 
   RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
   BEGIN
     -- 1. Hard-delete episodic ADK sessions and events
-    DELETE FROM public.sessions WHERE user_id = target_user_id AND org_id = executing_org_id;
+    DELETE FROM public.adk_sessions WHERE user_id = target_user_id AND org_id = executing_org_id;
     DELETE FROM public.conversations WHERE user_id = target_user_id AND org_id = executing_org_id;
     
     -- 2. Hard-delete semantic memory and vectors
     DELETE FROM public.memory_items WHERE user_id = target_user_id AND org_id = executing_org_id;
     
-    -- 3. Delete connected MCP tokens from Supabase Vault
+    -- 3. Delete connected MCP tokens and PII vault secrets from Supabase Vault
+    DELETE FROM vault.secrets
+    WHERE id IN (
+        SELECT vault_secret_id
+        FROM public.mcp_connections
+        WHERE user_id = target_user_id AND org_id = executing_org_id AND vault_secret_id IS NOT NULL
+    );
     DELETE FROM public.mcp_connections WHERE user_id = target_user_id AND org_id = executing_org_id;
+    DELETE FROM public.user_consents WHERE user_id = target_user_id AND org_id = executing_org_id;
+    DELETE FROM public.profiles WHERE id = target_user_id AND org_id = executing_org_id;
     
     -- 4. Pseudonymize tool audit logs (retain compliance counts, scrub PII)
     UPDATE public.tool_invocations
@@ -148,7 +167,7 @@ Workkbot resolves this by routing all privacy, redaction, and erasure decisions 
 ### **Tier 1: Unit & Contract Tests (Automated)**
 | Check ID | Verification Criteria | Test Command | Pass/Fail |
 |:---:|---|---|:---:|
-| **VAL-03.1** | Presidio Tier-1 fast-path: Indian Aadhaar (Verhoeff checksum) and PAN regex redact accurately | `uv run pytest apps/backend/tests/test_pii_fast_path.py` | [ ] |
+| **VAL-03.1** | Presidio Tier-1 with spaCy NLP model: Contextual NER (`PERSON`, `LOCATION`) and custom Indian recognizers (Aadhaar Verhoeff checksum, PAN, UPI, mobile) redact accurately | `uv run pytest apps/backend/tests/test_pii_fast_path.py` | [ ] |
 | **VAL-03.2** | Reversible tokenization: `<EMAIL_1>` and `<IN_PAN_1>` map to ephemeral session vault | `uv run pytest apps/backend/tests/test_pii_vault_lifecycle.py` | [ ] |
 | **VAL-03.3** | Tool rehydration: ADK `before_tool` replaces tokens with real PII before tool dispatch | `uv run pytest apps/backend/tests/test_tool_rehydration.py` | [ ] |
 | **VAL-03.4** | Tool output masking: ADK `after_tool` redacts newly returned PII before re-entering LLM context | `uv run pytest apps/backend/tests/test_tool_output_masking.py` | [ ] |

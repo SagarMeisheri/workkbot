@@ -74,3 +74,4 @@ skills-lock.json
 # TypeScript incremental build cache
 *.tsbuildinfo
 apps/web/tsconfig.tsbuildinfo
+repomix-output.xml
