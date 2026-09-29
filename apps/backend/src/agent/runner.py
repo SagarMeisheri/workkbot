@@ -95,6 +95,7 @@ class AdkRunnerSingleton:
         run_config = RunConfig(streaming_mode=StreamingMode.SSE)
 
         # 4. Execute turn via canonical Google ADK Runner with StreamingMode.SSE
+        rehydrator = session_pii_vault.create_stream_rehydrator(session_id)
         try:
             async for adk_event in self._runner.run_async(
                 user_id=user_id,
@@ -120,9 +121,10 @@ class AdkRunnerSingleton:
                             part_dict = {"thought": True, "text": thought_text}
                         elif getattr(part, "text", None):
                             text_str = part.text
-                            # Rehydrate tokens in model response for user presentation (Spec 03, R03.1 Step 8)
-                            rehydrated_text = session_pii_vault.rehydrate_text(session_id, text_str)
-                            part_dict = {"text": rehydrated_text}
+                            # Rehydrate tokens in model response across SSE chunk boundaries (Spec 03, R03.1 Step 8)
+                            rehydrated_text = rehydrator.process_chunk(text_str)
+                            if rehydrated_text:
+                                part_dict = {"text": rehydrated_text}
                         if part_dict:
                             parts_data.append(part_dict)
 
@@ -152,6 +154,20 @@ class AdkRunnerSingleton:
                             },
                             "turnComplete": False,
                         }
+
+            # Flush any remaining tail in rehydrator buffer
+            flushed_tail = rehydrator.flush()
+            if flushed_tail:
+                yield {
+                    "id": last_event_id,
+                    "author": "model",
+                    "branch": branch_name,
+                    "content": {
+                        "role": "model",
+                        "parts": [{"text": flushed_tail}],
+                    },
+                    "turnComplete": False,
+                }
 
             # Final completion event signifying turn complete
             self.model_router.record_success(active_model)

@@ -145,11 +145,47 @@ class SessionPiiVault:
             self._raw_to_tokens.pop(session_id, None)
             self._token_counters.pop(session_id, None)
 
+    def create_stream_rehydrator(self, session_id: str) -> "StreamingPiiRehydrator":
+        """Creates a streaming rehydrator that handles tokens split across SSE chunks."""
+        return StreamingPiiRehydrator(session_id=session_id, vault=self)
+
     def _ensure_session(self, session_id: str) -> None:
         if session_id not in self._tokens_to_raw:
             self._tokens_to_raw[session_id] = {}
             self._raw_to_tokens[session_id] = {}
             self._token_counters[session_id] = {}
+
+
+class StreamingPiiRehydrator:
+    """Buffers partial token boundaries (e.g. '<IN_' ... 'PAN_1>') across stream chunks."""
+
+    def __init__(self, session_id: str, vault: SessionPiiVault):
+        self.session_id = session_id
+        self.vault = vault
+        self._buffer = ""
+
+    def process_chunk(self, chunk: str) -> str:
+        text = self._buffer + chunk
+        self._buffer = ""
+
+        # Check if there is an unclosed '<' that looks like an incoming surrogate token
+        last_open = text.rfind("<")
+        last_close = text.rfind(">")
+        if last_open != -1 and last_open > last_close:
+            potential_token = text[last_open:]
+            # Only buffer if it's token-like (no whitespace or newlines, reasonable token length)
+            if " " not in potential_token and "\n" not in potential_token and len(potential_token) < 30:
+                self._buffer = potential_token
+                text = text[:last_open]
+
+        return self.vault.rehydrate_text(self.session_id, text)
+
+    def flush(self) -> str:
+        if self._buffer:
+            res = self.vault.rehydrate_text(self.session_id, self._buffer)
+            self._buffer = ""
+            return res
+        return ""
 
 
 # Global singleton
