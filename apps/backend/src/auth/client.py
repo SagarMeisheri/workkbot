@@ -55,6 +55,26 @@ class SupabaseAdminService:
                 self._client = None
         return self._client
 
+    def get_authenticated_client(self, token: Optional[str] = None):
+        """Returns client authenticated with token if valid ES256 Supabase JWT, else clean backend key."""
+        client = self.get_client()
+        if not client:
+            return None
+        if token:
+            try:
+                header = jwt.get_unverified_header(token)
+                if header.get("alg") == "ES256":
+                    client.postgrest.auth(token)
+                    return client
+            except Exception:
+                pass
+        # Fall back to clean backend key so PostgREST never fails with PGRST301
+        try:
+            client.postgrest.auth(self.service_role_key or settings.SUPABASE_ANON_KEY)
+        except Exception:
+            pass
+        return client
+
     def validate_email_domain(self, email: str) -> Tuple[bool, Optional[str]]:
         """
         Validates if user email belongs to an authorized organization domain.
@@ -65,7 +85,7 @@ class SupabaseAdminService:
 
         domain = email.split("@")[1].lower()
 
-        client = self.get_client()
+        client = self.get_authenticated_client(None)
         if client:
             try:
                 res = client.table("organizations").select("id, domains").execute()

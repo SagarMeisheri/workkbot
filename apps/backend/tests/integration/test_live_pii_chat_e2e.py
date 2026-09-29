@@ -97,10 +97,9 @@ async def test_live_pii_chat_e2e_storage_at_rest():
         ]
         
         # Also query Supabase if client is available
-        sb = supabase_admin.get_client()
-        if sb and token:
+        sb = supabase_admin.get_authenticated_client(token)
+        if sb:
             try:
-                sb.postgrest.auth(token)
                 res = sb.table("adk_events").select("*").eq("session_id", session_id).eq("author", "user").execute()
                 if res.data:
                     stored_user_events.extend(res.data)

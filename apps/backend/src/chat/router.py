@@ -42,12 +42,10 @@ class CreateConversationRequest(BaseModel):
 
 def _verify_dpdp_consent(current_user: CurrentUser) -> None:
     """Verifies statutory DPDP consent is active (VAL-01.4)."""
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token)
     has_consented = False
     if client:
         try:
-            if current_user.token:
-                client.postgrest.auth(current_user.token)
             res = client.table("user_consents").select("id").eq("user_id", current_user.id).eq("status", "active").execute()
             if res.data:
                 has_consented = True
@@ -118,11 +116,9 @@ async def list_conversations(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Lists conversations for the authenticated user and org (R02.4)."""
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
-            if current_user.token:
-                client.postgrest.auth(current_user.token)
             res = client.table("conversations").select("*").eq("user_id", current_user.id).eq("org_id", current_user.org_id).order("updated_at", desc=True).execute()
             if res.data:
                 return {"conversations": res.data}
@@ -139,7 +135,7 @@ async def create_conversation(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Initializes a new conversation thread."""
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token)
     conv_id = str(uuid.uuid4())
     row = {
         "id": conv_id,
@@ -151,8 +147,6 @@ async def create_conversation(
 
     if client:
         try:
-            if current_user.token:
-                client.postgrest.auth(current_user.token)
             res = client.table("conversations").insert(row).execute()
             if res.data:
                 return res.data[0]
@@ -168,11 +162,9 @@ async def get_conversation(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Fetches a conversation thread and its events with RLS tenant isolation."""
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
-            if current_user.token:
-                client.postgrest.auth(current_user.token)
             conv_res = client.table("conversations").select("*").eq("id", conversation_id).eq("user_id", current_user.id).execute()
             if conv_res.data:
                 conversation = conv_res.data[0]
@@ -203,11 +195,9 @@ async def delete_conversation(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Deletes a conversation and cascades through its events and sessions."""
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
-            if current_user.token:
-                client.postgrest.auth(current_user.token)
             client.table("conversations").delete().eq("id", conversation_id).eq("user_id", current_user.id).execute()
         except Exception as e:
             logger.debug("Live Supabase delete conversation fallback: %s", e)
@@ -253,11 +243,9 @@ async def report_ai_content(
     }
     _local_db.setdefault("ai_content_reports", []).append(row)
 
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
-            if current_user.token:
-                client.postgrest.auth(current_user.token)
             res = client.table("ai_content_reports").insert(row).execute()
             if res.data:
                 logger.info("Apple Guideline 1.2 Report recorded: %s (reason: %s)", report_id, payload.reason)

@@ -1,5 +1,6 @@
 """DPDP Act 2023 Statutory Consent & AI Disclosure Router."""
 from datetime import datetime, timezone
+import logging
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -9,6 +10,7 @@ from src.auth.dependencies import CurrentUser, get_current_user
 from src.auth.client import supabase_admin, _local_db
 from src.config import settings
 
+logger = logging.getLogger("workkbot.consent")
 router = APIRouter(prefix="/api/v1/consent", tags=["consent"])
 
 DPDP_DISCLOSURES_EN = [
@@ -129,12 +131,12 @@ async def record_user_consent(
     }
     
     # Store in live Supabase table
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
             client.table("user_consents").insert(record).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Live Supabase insert user_consents error: %s", e)
 
     # Store in local mirror
     _local_db["user_consents"].append(record)

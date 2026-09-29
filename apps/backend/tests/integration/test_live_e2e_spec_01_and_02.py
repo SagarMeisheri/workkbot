@@ -184,8 +184,8 @@ async def test_live_e2e_spec_01_and_spec_02_pipeline():
         # =====================================================================
         if supabase_client:
             try:
-                supabase_client.postgrest.auth(token)
-                db_sessions = supabase_client.table("adk_sessions").select("id").eq("id", session_id).execute()
+                sb = supabase_admin.get_authenticated_client(token)
+                db_sessions = sb.table("adk_sessions").select("id").eq("id", session_id).execute()
                 assert len(db_sessions.data) > 0, "adk_sessions row not persisted in live Supabase!"
                 db_events = supabase_client.table("adk_events").select("id").eq("session_id", session_id).execute()
                 assert len(db_events.data) >= 4, f"Expected >= 4 events in live Supabase, got {len(db_events.data)}"

@@ -87,14 +87,8 @@ class SupabaseAdkSessionService(BaseSessionService):
         super().__init__()
 
     def _client(self, auth_token: Optional[str] = None, session_id: Optional[str] = None):
-        client = supabase_admin.get_client()
         token = auth_token or current_session_token.get() or (session_id and _session_tokens.get(session_id))
-        if client and token:
-            try:
-                client.postgrest.auth(token)
-            except Exception as e:
-                logger.warning("Error setting postgrest auth token: %s", e)
-        return client
+        return supabase_admin.get_authenticated_client(token)
 
     async def create_session(
         self,
