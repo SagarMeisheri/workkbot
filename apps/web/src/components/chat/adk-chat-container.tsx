@@ -53,7 +53,8 @@ export function useAdkStreamingChat({
     text: string,
     mode: "chat" | "cowork" = "chat",
     model: string = "gemini-3.8-flash",
-    checkpointId?: string
+    checkpointId?: string,
+    overrideConversationId?: string
   ) => {
     if (!text.trim()) return;
 
@@ -82,6 +83,7 @@ export function useAdkStreamingChat({
     abortControllerRef.current = new AbortController();
 
     try {
+      const activeConvId = overrideConversationId || conversationId;
       const response = await fetch(`${BACKEND_URL}/api/v1/chat/stream`, {
         method: "POST",
         headers: {
@@ -92,7 +94,7 @@ export function useAdkStreamingChat({
         body: JSON.stringify({
           message: text,
           sessionId,
-          conversationId,
+          conversationId: activeConvId,
           model,
           checkpointId,
         }),

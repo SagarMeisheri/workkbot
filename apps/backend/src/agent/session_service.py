@@ -125,7 +125,9 @@ class SupabaseAdkSessionService(BaseSessionService):
                         client.table("conversations").insert(conv_row).execute()
                 except Exception as e:
                     logger.error("Live Supabase ensure conversation error: %s", e)
-            _local_db.setdefault("conversations", []).append(conv_row)
+            convs = _local_db.setdefault("conversations", [])
+            if not any(c["id"] == conversation_id for c in convs):
+                convs.append(conv_row)
         elif not conversation_id and org_id:
             conv_id = str(uuid.uuid4())
             conv_row = {
@@ -139,7 +141,9 @@ class SupabaseAdkSessionService(BaseSessionService):
                     client.table("conversations").insert(conv_row).execute()
                 except Exception as e:
                     logger.error("Live Supabase insert conversation error: %s", e)
-            _local_db.setdefault("conversations", []).append(conv_row)
+            convs = _local_db.setdefault("conversations", [])
+            if not any(c["id"] == conv_id for c in convs):
+                convs.append(conv_row)
             conversation_id = conv_id
 
         session_row = {

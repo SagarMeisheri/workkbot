@@ -9,7 +9,7 @@ import { FloatingComposer } from "@/components/chat/floating-composer";
 import { SuggestionCloud } from "@/components/chat/suggestion-cloud";
 import { ConnectorsHubModal } from "@/components/chat/connectors-hub-modal";
 import { ConsentModal } from "@/components/auth/consent-modal";
-import { useAdkStreamingChat } from "@/components/chat/adk-chat-container";
+import { useAdkStreamingChat, type ChatMessage } from "@/components/chat/adk-chat-container";
 import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
@@ -42,6 +42,22 @@ export default function WorkspacePage() {
     conversationId,
     onConsentRequired: () => setIsConsentOpen(true),
   });
+
+  const fetchConversations = async (token: string) => {
+    try {
+      const convRes = await fetch(`${BACKEND_URL}/api/v1/conversations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (convRes.ok) {
+        const data = await convRes.json();
+        if (data.conversations && Array.isArray(data.conversations)) {
+          setThreads(data.conversations.map((c: any) => ({ id: c.id, title: c.title || "New chat" })));
+        }
+      }
+    } catch (e) {
+      console.error("Fetch conversations error:", e);
+    }
+  };
 
   useEffect(() => {
     // 1. Check live Supabase Session
@@ -81,30 +97,23 @@ export default function WorkspacePage() {
           console.error("Consent check error:", e);
         }
 
-        // Fetch user conversations
-        try {
-          const convRes = await fetch(`${BACKEND_URL}/api/v1/conversations`, {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          if (convRes.ok) {
-            const data = await convRes.json();
-            if (data.conversations && Array.isArray(data.conversations)) {
-              setThreads(data.conversations.map((c: any) => ({ id: c.id, title: c.title })));
-            }
-          }
-        } catch (e) {
-          console.error("Fetch conversations error:", e);
-        }
+        // Fetch user conversations from Supabase
+        await fetchConversations(session.access_token);
       } else {
         // Fallback to local storage (for reviewer mode or cached tokens)
         const authData = localStorage.getItem("workkbot_auth");
+        const token = localStorage.getItem("workkbot_token");
         if (authData) {
           try {
             const parsed = JSON.parse(authData);
+            if (token) parsed.access_token = token;
             setUser(parsed);
             const consented = localStorage.getItem("workkbot_consented");
             if (!consented) {
               setIsConsentOpen(true);
+            }
+            if (token) {
+              await fetchConversations(token);
             }
           } catch (e) {
             console.error("Auth parsing error:", e);
@@ -144,15 +153,85 @@ export default function WorkspacePage() {
     };
   }, []);
 
-  const handleSendMessage = async (text: string, mode: "chat" | "cowork", model: string) => {
-    const threadTitle = text.slice(0, 30);
-    if (activeThread === "New chat") {
-      setActiveThread(threadTitle);
-      const newConvId = `conv_${Date.now()}`;
-      setConversationId(newConvId);
-      setThreads((prev) => [{ id: newConvId, title: threadTitle }, ...prev]);
+  const handleSelectThread = async (t: { id: string; title: string }) => {
+    setActiveThread(t.title);
+    setConversationId(t.id);
+    setSessionId(`sess_${t.id}`);
+
+    const token = user?.access_token || (typeof window !== "undefined" ? localStorage.getItem("workkbot_token") : null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/v1/conversations/${t.id}`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const loadedMessages: ChatMessage[] = [];
+        if (data.events && Array.isArray(data.events)) {
+          for (const ev of data.events) {
+            let text = "";
+            let thought = "";
+            const content = ev.content;
+            if (content && typeof content === "object" && Array.isArray(content.parts)) {
+              for (const part of content.parts) {
+                if (part.thought) {
+                  thought += (part.text || "");
+                } else if (part.text) {
+                  text += part.text;
+                }
+              }
+            } else if (typeof content === "string") {
+              text = content;
+            } else if (content && typeof content === "object" && content.text) {
+              text = content.text;
+            }
+            if (text || thought) {
+              loadedMessages.push({
+                id: ev.id,
+                role: ev.author === "user" ? "user" : "assistant",
+                content: text,
+                thought: thought || undefined,
+                checkpointId: ev.parent_event_id,
+              });
+            }
+          }
+        }
+        setMessages(loadedMessages);
+      }
+    } catch (e) {
+      console.error("Failed to load conversation events from Supabase:", e);
     }
-    await sendMessage(text, mode, model);
+  };
+
+  const handleSendMessage = async (text: string, mode: "chat" | "cowork", model: string) => {
+    const threadTitle = text.slice(0, 35);
+    let activeConvId = conversationId;
+
+    if (!activeConvId || activeThread === "New chat") {
+      activeConvId = crypto.randomUUID();
+      setActiveThread(threadTitle);
+      setConversationId(activeConvId);
+      setThreads((prev) => [{ id: activeConvId!, title: threadTitle }, ...prev.filter(t => t.id !== activeConvId)]);
+
+      // Persist conversation directly in Supabase
+      const token = user?.access_token || (typeof window !== "undefined" ? localStorage.getItem("workkbot_token") : null);
+      if (token) {
+        fetch(`${BACKEND_URL}/api/v1/conversations`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            id: activeConvId,
+            title: threadTitle,
+          }),
+        }).catch((err) => console.error("Error creating conversation in Supabase:", err));
+      }
+    }
+
+    await sendMessage(text, mode, model, undefined, activeConvId);
   };
 
   const handleNewThread = () => {
@@ -205,11 +284,7 @@ export default function WorkspacePage() {
                   {threads.map((t, idx) => (
                     <button
                       key={t.id || idx}
-                      onClick={() => {
-                        setActiveThread(t.title);
-                        setConversationId(t.id);
-                        setSessionId(`sess_${t.id}`);
-                      }}
+                      onClick={() => handleSelectThread(t)}
                       className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs truncate transition-colors flex items-center gap-2 ${
                         activeThread === t.title
                           ? "bg-accent text-accent-foreground font-medium"

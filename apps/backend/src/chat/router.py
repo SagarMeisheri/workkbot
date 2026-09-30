@@ -38,6 +38,7 @@ class ContentReportRequest(BaseModel):
 
 class CreateConversationRequest(BaseModel):
     title: Optional[str] = "New chat"
+    id: Optional[str] = None
 
 
 def _verify_dpdp_consent(current_user: CurrentUser) -> None:
@@ -116,16 +117,18 @@ async def list_conversations(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Lists conversations for the authenticated user and org (R02.4)."""
+    local_convs = [c for c in _local_db.get("conversations", []) if c["user_id"] == current_user.id and c["org_id"] == current_user.org_id]
     client = supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
             res = client.table("conversations").select("*").eq("user_id", current_user.id).eq("org_id", current_user.org_id).order("updated_at", desc=True).execute()
             if res.data:
-                return {"conversations": res.data}
+                existing_ids = {c["id"] for c in res.data}
+                merged = list(res.data) + [c for c in local_convs if c["id"] not in existing_ids]
+                return {"conversations": merged}
         except Exception as e:
             logger.debug("Live Supabase list conversations fallback: %s", e)
 
-    local_convs = [c for c in _local_db.get("conversations", []) if c["user_id"] == current_user.id and c["org_id"] == current_user.org_id]
     return {"conversations": local_convs}
 
 
@@ -136,14 +139,21 @@ async def create_conversation(
 ):
     """Initializes a new conversation thread."""
     client = supabase_admin.get_authenticated_client(current_user.token)
-    conv_id = str(uuid.uuid4())
+    conv_id = payload.id or str(uuid.uuid4())
     row = {
         "id": conv_id,
         "user_id": current_user.id,
         "org_id": current_user.org_id,
         "title": payload.title or "New chat",
     }
-    _local_db.setdefault("conversations", []).append(row)
+    
+    # Deduplicate in _local_db
+    convs = _local_db.setdefault("conversations", [])
+    existing_idx = next((i for i, c in enumerate(convs) if c["id"] == conv_id), None)
+    if existing_idx is not None:
+        convs[existing_idx] = row
+    else:
+        convs.append(row)
 
     if client:
         try:
@@ -185,7 +195,15 @@ async def get_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     conv_copy = dict(conv)
-    conv_copy["events"] = [e for e in _local_db.get("adk_events", []) if e.get("session_id") == conversation_id]
+    matched_session_ids = {
+        s["id"] for s in _local_db.get("adk_sessions", [])
+        if s.get("conversation_id") == conversation_id or s.get("id") == conversation_id
+    }
+    matched_session_ids.add(conversation_id)
+    conv_copy["events"] = [
+        e for e in _local_db.get("adk_events", [])
+        if e.get("session_id") in matched_session_ids
+    ]
     return conv_copy
 
 
