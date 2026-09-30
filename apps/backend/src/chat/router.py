@@ -2,6 +2,7 @@
 import uuid
 import logging
 from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -39,6 +40,11 @@ class ContentReportRequest(BaseModel):
 class CreateConversationRequest(BaseModel):
     title: Optional[str] = "New chat"
     id: Optional[str] = None
+
+
+class UpdateConversationRequest(BaseModel):
+    title: Optional[str] = None
+    pinned: Optional[bool] = None
 
 
 def _verify_dpdp_consent(current_user: CurrentUser) -> None:
@@ -125,10 +131,12 @@ async def list_conversations(
             if res.data:
                 existing_ids = {c["id"] for c in res.data}
                 merged = list(res.data) + [c for c in local_convs if c["id"] not in existing_ids]
+                merged.sort(key=lambda c: (bool(c.get("pinned")), c.get("updated_at") or ""), reverse=True)
                 return {"conversations": merged}
         except Exception as e:
             logger.debug("Live Supabase list conversations fallback: %s", e)
 
+    local_convs.sort(key=lambda c: (bool(c.get("pinned")), c.get("updated_at") or ""), reverse=True)
     return {"conversations": local_convs}
 
 
@@ -205,6 +213,35 @@ async def get_conversation(
         if e.get("session_id") in matched_session_ids
     ]
     return conv_copy
+
+
+@router.patch("/api/v1/conversations/{conversation_id}")
+async def update_conversation(
+    conversation_id: str,
+    payload: UpdateConversationRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Updates conversation title or pinned status."""
+    updates: Dict[str, Any] = {}
+    if payload.title is not None:
+        updates["title"] = payload.title
+    if payload.pinned is not None:
+        updates["pinned"] = payload.pinned
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    client = supabase_admin.get_authenticated_client(current_user.token)
+    if client:
+        try:
+            client.table("conversations").update(updates).eq("id", conversation_id).eq("user_id", current_user.id).execute()
+        except Exception as e:
+            logger.error("Live Supabase update conversation fallback: %s", e)
+
+    conv = next((c for c in _local_db.get("conversations", []) if c["id"] == conversation_id and c["user_id"] == current_user.id), None)
+    if conv:
+        conv.update(updates)
+        return {"status": "updated", "id": conversation_id, **conv}
+
+    return {"status": "updated", "id": conversation_id, **updates}
 
 
 @router.delete("/api/v1/conversations/{conversation_id}")

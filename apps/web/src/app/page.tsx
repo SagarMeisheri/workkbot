@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Plus, MessageSquare, ExternalLink, Shield, ArrowDown } from "lucide-react";
 import { SidebarAuthFooter } from "@/components/sidebar/sidebar-auth-footer";
+import { SidebarThreadItem, type ThreadItemData } from "@/components/sidebar/sidebar-thread-item";
 import { ThreadHeader } from "@/components/chat/thread-header";
 import { ChatHeroGreeting } from "@/components/chat/chat-hero-greeting";
 import { FloatingComposer } from "@/components/chat/floating-composer";
@@ -25,7 +26,7 @@ export default function WorkspacePage() {
   const [isConsentOpen, setIsConsentOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string>(() => `sess_${Date.now()}`);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
-  const [threads, setThreads] = useState<Array<{ id: string; title: string }>>([]);
+  const [threads, setThreads] = useState<Array<ThreadItemData>>([]);
   const [activeThread, setActiveThread] = useState<string>("New chat");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -72,7 +73,13 @@ export default function WorkspacePage() {
       if (convRes.ok) {
         const data = await convRes.json();
         if (data.conversations && Array.isArray(data.conversations)) {
-          setThreads(data.conversations.map((c: any) => ({ id: c.id, title: c.title || "New chat" })));
+          setThreads(
+            data.conversations.map((c: any) => ({
+              id: c.id,
+              title: c.title || "New chat",
+              pinned: !!c.pinned,
+            }))
+          );
         }
       }
     } catch (e) {
@@ -174,7 +181,7 @@ export default function WorkspacePage() {
     };
   }, []);
 
-  const handleSelectThread = async (t: { id: string; title: string }) => {
+  const handleSelectThread = async (t: ThreadItemData) => {
     setActiveThread(t.title);
     setConversationId(t.id);
     setSessionId(`sess_${t.id}`);
@@ -233,7 +240,7 @@ export default function WorkspacePage() {
       activeConvId = crypto.randomUUID();
       setActiveThread(threadTitle);
       setConversationId(activeConvId);
-      setThreads((prev) => [{ id: activeConvId!, title: threadTitle }, ...prev.filter(t => t.id !== activeConvId)]);
+      setThreads((prev) => [{ id: activeConvId!, title: threadTitle, pinned: false }, ...prev.filter(t => t.id !== activeConvId)]);
 
       // Persist conversation directly in Supabase
       const token = user?.access_token || (typeof window !== "undefined" ? localStorage.getItem("workkbot_token") : null);
@@ -260,6 +267,75 @@ export default function WorkspacePage() {
     setSessionId(`sess_${Date.now()}`);
     setConversationId(undefined);
     setActiveThread("New chat");
+  };
+
+  const handleDeleteThread = async (id: string) => {
+    setThreads((prev) => prev.filter((t) => t.id !== id));
+    if (conversationId === id) {
+      handleNewThread();
+    }
+    const token = user?.access_token || (typeof window !== "undefined" ? localStorage.getItem("workkbot_token") : null);
+    if (token) {
+      try {
+        await fetch(`${BACKEND_URL}/api/v1/conversations/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        console.error("Error deleting conversation from Supabase:", err);
+      }
+    }
+  };
+
+  const handleRenameThread = async (id: string, newTitle: string) => {
+    setThreads((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title: newTitle } : t))
+    );
+    if (conversationId === id) {
+      setActiveThread(newTitle);
+    }
+    const token = user?.access_token || (typeof window !== "undefined" ? localStorage.getItem("workkbot_token") : null);
+    if (token) {
+      try {
+        await fetch(`${BACKEND_URL}/api/v1/conversations/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ title: newTitle }),
+        });
+      } catch (err) {
+        console.error("Error renaming conversation in Supabase:", err);
+      }
+    }
+  };
+
+  const handlePinThread = async (id: string, pinned: boolean) => {
+    setThreads((prev) => {
+      const updated = prev.map((t) => (t.id === id ? { ...t, pinned } : t));
+      return [...updated].sort((a, b) => {
+        if (!!b.pinned !== !!a.pinned) {
+          return b.pinned ? 1 : -1;
+        }
+        return 0;
+      });
+    });
+    const token = user?.access_token || (typeof window !== "undefined" ? localStorage.getItem("workkbot_token") : null);
+    if (token) {
+      try {
+        await fetch(`${BACKEND_URL}/api/v1/conversations/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ pinned }),
+        });
+      } catch (err) {
+        console.error("Error pinning conversation in Supabase:", err);
+      }
+    }
   };
 
   return (
@@ -302,19 +378,16 @@ export default function WorkspacePage() {
                   Recent Threads
                 </span>
                 <div className="mt-1 flex flex-col gap-0.5">
-                  {threads.map((t, idx) => (
-                    <button
-                      key={t.id || idx}
-                      onClick={() => handleSelectThread(t)}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs truncate transition-colors flex items-center gap-2 ${
-                        activeThread === t.title
-                          ? "bg-accent text-accent-foreground font-medium"
-                          : "hover:bg-accent/60 text-foreground/80"
-                      }`}
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate">{t.title}</span>
-                    </button>
+                  {threads.map((t) => (
+                    <SidebarThreadItem
+                      key={t.id}
+                      thread={t}
+                      isSelected={conversationId === t.id}
+                      onSelect={handleSelectThread}
+                      onDelete={handleDeleteThread}
+                      onRename={handleRenameThread}
+                      onPin={handlePinThread}
+                    />
                   ))}
                 </div>
               </div>
