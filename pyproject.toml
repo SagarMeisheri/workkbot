@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Workkbot 2.0 Monorepo"
 requires-python = ">=3.11"
 dependencies = [
+    "composio>=0.22.0",
     "workkbot-backend",
 ]
 
