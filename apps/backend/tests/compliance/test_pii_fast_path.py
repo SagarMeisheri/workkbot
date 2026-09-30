@@ -90,5 +90,31 @@ def test_spacy_person_and_email_detection():
     entities = {f["entity_type"]: f["text"] for f in findings}
     assert "EMAIL_ADDRESS" in entities
     assert entities["EMAIL_ADDRESS"] == "rahul.sharma@enterprise.in"
-    # PERSON may be detected by spaCy
+    # PERSON is intentionally excluded from default PII entities to prevent over-masking
     assert any("Rahul" in f["text"] for f in findings if f["entity_type"] == "PERSON") or "EMAIL_ADDRESS" in entities
+
+
+def test_country_and_location_not_masked():
+    """Verifies that countries, cities, organizations, and dates are NOT masked."""
+    text = "I plan to visit Germany, France, and Japan next week for a conference with Google and Microsoft."
+    findings = presidio_engine.analyze(text)
+
+    detected_texts = [f["text"] for f in findings]
+    assert "Germany" not in detected_texts
+    assert "France" not in detected_texts
+    assert "Japan" not in detected_texts
+    assert "Google" not in detected_texts
+    assert "Microsoft" not in detected_texts
+    assert "next week" not in detected_texts
+    assert len(findings) == 0
+
+
+def test_gstin_detection():
+    """Tests Indian GSTIN pattern recognition."""
+    text = "Supplier GSTIN is 27ABCDE1234F1Z5 for Maharashtra."
+    findings = presidio_engine.analyze(text)
+
+    gst_findings = [f for f in findings if f["entity_type"] in ("INDIA_GST", "INDIA_GST_NUMBER")]
+    assert len(gst_findings) == 1
+    assert gst_findings[0]["text"] == "27ABCDE1234F1Z5"
+

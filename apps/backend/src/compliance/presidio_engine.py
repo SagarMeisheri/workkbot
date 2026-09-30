@@ -42,6 +42,24 @@ _VERHOEFF_P = (
 
 _VERHOEFF_INV = (0, 4, 3, 2, 1, 5, 6, 7, 8, 9)
 
+# Statutory identifiers, government IDs, and financial tokens (DPDP Act 2023 & Aadhaar Act 2016)
+# Deliberately excludes LOCATION, ORGANIZATION, DATE_TIME, NRP, AGE, and general PERSON
+# to prevent over-masking common nouns, countries, cities, and companies.
+DEFAULT_PII_ENTITIES: List[str] = [
+    # Indian Statutory Identifiers
+    "INDIA_PAN",
+    "INDIA_AADHAAR",
+    "INDIA_GST",
+    "INDIA_GST_NUMBER",
+    "INDIA_UPI",
+    "INDIA_PHONE",
+    # Statutory / Financial IDs
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "CREDIT_CARD",
+    "IBAN_CODE",
+]
+
 
 def validate_verhoeff(num_str: str) -> bool:
     """Validates an Indian Aadhaar number against the Verhoeff checksum algorithm."""
@@ -100,7 +118,7 @@ class AadhaarRecognizer:
 
 class PresidioEngine:
     """
-    Microsoft Presidio Analyzer with full spaCy NLP integration and custom Indian recognizers.
+    Microsoft Presidio Analyzer with targeted statutory entity filtering.
     """
 
     def __init__(self, spacy_model: str = "en_core_web_sm"):
@@ -152,7 +170,6 @@ class PresidioEngine:
         self.analyzer.registry.add_recognizer(pan_recognizer)
 
         # 2. Indian UPI: [a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}
-        # Avoid collision with emails by checking typical UPI handles
         upi_pattern = Pattern(
             name="india_upi_pattern",
             regex=r"\b[a-zA-Z0-9.\-_]{2,256}@(okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|axl|upi|postbank|jupiteraxis)\b",
@@ -178,6 +195,19 @@ class PresidioEngine:
         )
         self.analyzer.registry.add_recognizer(phone_recognizer)
 
+        # 4. Indian GSTIN: 2 digits state code, 10 char PAN, 1 entity code, 'Z', 1 checksum digit
+        gst_pattern = Pattern(
+            name="india_gst_pattern",
+            regex=r"\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}\b",
+            score=0.95,
+        )
+        gst_recognizer = PatternRecognizer(
+            supported_entity="INDIA_GST",
+            patterns=[gst_pattern],
+            context=["gst", "gstin", "goods and services tax", "tax invoice"],
+        )
+        self.analyzer.registry.add_recognizer(gst_recognizer)
+
     def analyze(
         self,
         text: str,
@@ -186,14 +216,16 @@ class PresidioEngine:
     ) -> List[Dict[str, Any]]:
         """
         Analyzes text and returns structured findings.
-        Combines Presidio with Aadhaar Verhoeff validation.
+        By default, limits detection to DEFAULT_PII_ENTITIES (statutory IDs, PAN, Aadhaar, GSTIN, UPI, phone, email).
+        Excludes broad entities such as LOCATION (countries/cities) and ORGANIZATION.
         """
+        target_entities = entities if entities is not None else DEFAULT_PII_ENTITIES
         findings: List[Dict[str, Any]] = []
 
         # 1. Custom Verhoeff Aadhaar Scan
-        aadhaar_scanner = AadhaarRecognizer()
-        for start, end, entity_type, score in aadhaar_scanner.analyze(text):
-            if entities is None or entity_type in entities:
+        if "INDIA_AADHAAR" in target_entities or "INDIA_AADHAAR_NUMBER" in target_entities:
+            aadhaar_scanner = AadhaarRecognizer()
+            for start, end, entity_type, score in aadhaar_scanner.analyze(text):
                 findings.append({
                     "start": start,
                     "end": end,
@@ -202,11 +234,9 @@ class PresidioEngine:
                     "score": score,
                 })
 
-        # 2. Presidio Analyzer Execution
+        # 2. Presidio Analyzer Execution with filtered entities
         if self.analyzer:
             try:
-                # Default entities if None
-                target_entities = entities
                 res = self.analyzer.analyze(text=text, entities=target_entities, language=language)
                 for r in res:
                     # Skip if overlapping with Aadhaar
@@ -226,25 +256,27 @@ class PresidioEngine:
                 logger.error("Presidio analyze error: %s", e)
         else:
             # Pure Python fallback for regex matches
-            findings.extend(self._fallback_scan(text, entities))
+            findings.extend(self._fallback_scan(text, target_entities))
 
         # Sort findings by start position ascending
         findings.sort(key=lambda x: x["start"])
         return findings
 
     def _fallback_scan(self, text: str, entities: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """Pure-python regex scanner for PAN, UPI, Mobile, Email when Presidio isn't loaded."""
+        """Pure-python regex scanner for PAN, GST, UPI, Mobile, Email when Presidio isn't loaded."""
+        target = entities if entities is not None else DEFAULT_PII_ENTITIES
         res: List[Dict[str, Any]] = []
 
         patterns = [
             ("INDIA_PAN", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", 0.9),
+            ("INDIA_GST", r"\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}\b", 0.95),
             ("INDIA_UPI", r"\b[a-zA-Z0-9.\-_]{2,256}@(okaxis|okhdfcbank|okicici|oksbi|paytm|ybl|ibl|axl|upi)\b", 0.9),
             ("INDIA_PHONE", r"\b(?:\+91|91|0)?[6-9]\d{9}\b", 0.85),
             ("EMAIL_ADDRESS", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b", 0.9),
         ]
 
         for entity_type, pattern_str, score in patterns:
-            if entities and entity_type not in entities:
+            if entity_type not in target:
                 continue
             for m in re.finditer(pattern_str, text):
                 res.append({
