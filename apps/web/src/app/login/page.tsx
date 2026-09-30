@@ -4,11 +4,13 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shield, Sparkles, ChevronDown, ChevronUp, ArrowRight, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { BACKEND_URL } from "@/lib/config";
+import { BACKEND_URL, REVIEWER_EMAIL, REVIEWER_PASSWORD } from "@/lib/config";
 
 export default function LoginPage() {
   const router = useRouter();
   const [showReviewerMode, setShowReviewerMode] = useState(false);
+  const [reviewerEmail, setReviewerEmail] = useState(REVIEWER_EMAIL);
+  const [reviewerPassword, setReviewerPassword] = useState(REVIEWER_PASSWORD);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,16 +33,29 @@ export default function LoginPage() {
     }
   };
 
-  const handleReviewerLogin = async () => {
+  const handleReviewerLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setLoading(true);
     setError(null);
+
+    const emailToSend = reviewerEmail.trim();
+    const passwordToSend = reviewerPassword;
+
+    if (!emailToSend || !passwordToSend) {
+      setError(
+        "Reviewer credentials not found. Please provide an email and password or configure NEXT_PUBLIC_REVIEWER_EMAIL and NEXT_PUBLIC_REVIEWER_PASSWORD in .env."
+      );
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/v1/auth/reviewer-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: "apple-reviewer@workkbot.in",
-          password: "ReviewerDemo2026!Secured",
+          email: emailToSend,
+          password: passwordToSend,
         }),
       });
 
@@ -133,25 +148,51 @@ export default function LoginPage() {
           </button>
 
           {showReviewerMode && (
-            <div className="p-4 rounded-xl bg-muted/50 border border-border flex flex-col gap-3 text-xs animate-in fade-in duration-200">
-              <div className="flex flex-col gap-1">
-                <span className="text-muted-foreground">Reviewer Account:</span>
-                <code className="bg-background px-2 py-1 rounded font-mono text-[11px] border border-border">
-                  apple-reviewer@workkbot.in
-                </code>
-              </div>
-              <p className="text-muted-foreground text-[11px]">
-                Instant sign-in directly into the isolated sandbox organization with pre-configured tools. Bypasses corporate Google SSO and MFA.
+            <form
+              onSubmit={handleReviewerLogin}
+              className="p-4 rounded-xl bg-muted/50 border border-border flex flex-col gap-3 text-xs animate-in fade-in duration-200"
+            >
+              <p className="text-muted-foreground text-[11px] leading-relaxed">
+                Instant sandbox sign-in for App Store &amp; Play Store reviewers (Apple Guideline 2.1). Pre-populated from environment variables to bypass corporate SSO and MFA.
               </p>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-medium text-foreground">
+                  Reviewer Email
+                </label>
+                <input
+                  type="email"
+                  value={reviewerEmail}
+                  onChange={(e) => setReviewerEmail(e.target.value)}
+                  placeholder="apple-reviewer@workkbot.in"
+                  required
+                  className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-medium text-foreground">
+                  Reviewer Password
+                </label>
+                <input
+                  type="password"
+                  value={reviewerPassword}
+                  onChange={(e) => setReviewerPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  required
+                  className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
               <button
-                onClick={handleReviewerLogin}
+                type="submit"
                 disabled={loading}
-                className="w-full h-9 rounded-lg bg-primary text-primary-foreground font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+                className="w-full h-9 mt-1 rounded-lg bg-primary text-primary-foreground font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                <span>Sign in as Reviewer</span>
+                <span>{loading ? "Authenticating..." : "Sign in as Reviewer"}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
-            </div>
+            </form>
           )}
         </div>
 
