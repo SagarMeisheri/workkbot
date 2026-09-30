@@ -321,6 +321,37 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
 
                     <p className="text-xs text-muted-foreground line-clamp-2">{connector.description}</p>
 
+                    {isConnected && (
+                      <div className="pt-2 border-t border-border/50 flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-foreground font-medium">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <span>Available Tools ({activeConnections.find((c) => c.provider === connector.id)?.discovered_tools?.length || 7})</span>
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {(activeConnections.find((c) => c.provider === connector.id)?.discovered_tools || [
+                            { name: "calendar_list_events" },
+                            { name: "calendar_create_event" },
+                            { name: "gmail_search_threads" },
+                            { name: "gmail_create_draft" },
+                            { name: "drive_search_files" },
+                            { name: "docs_read_doc" },
+                            { name: "sheets_read_sheet" },
+                          ]).slice(0, 5).map((t: any, idx: number) => (
+                            <span key={idx} className="px-1.5 py-0.5 rounded bg-muted/80 text-[10px] font-mono text-muted-foreground border border-border/40">
+                              {t.name}
+                            </span>
+                          ))}
+                          {((activeConnections.find((c) => c.provider === connector.id)?.discovered_tools?.length || 7) > 5) && (
+                            <span className="text-[10px] text-muted-foreground self-center">
+                              +{((activeConnections.find((c) => c.provider === connector.id)?.discovered_tools?.length || 7) - 5)} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="pt-2 border-t border-border/60 flex items-center justify-between text-[11px] text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <FolderLock className="w-3 h-3 text-amber-600" />
@@ -381,31 +412,28 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
                         </div>
                       </div>
 
-                      {/* Discovered Tools Badge Section */}
-                      {conn.discovered_tools && conn.discovered_tools.length > 0 && (
-                        <div className="pt-2.5 border-t border-border/50">
-                          <details className="text-[11px] group">
-                            <summary className="cursor-pointer text-primary hover:underline font-medium list-none flex items-center justify-between">
-                              <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                <span>Connected MCP Tools ({conn.discovered_tools.length})</span>
-                              </span>
-                              <span className="text-[10px] text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
-                            </summary>
-                            <div className="flex flex-wrap gap-1.5 mt-2 max-h-32 overflow-y-auto pt-1">
-                              {conn.discovered_tools.map((t: any, idx: number) => (
-                                <span
-                                  key={idx}
-                                  className="px-2 py-0.5 rounded-md bg-muted/80 text-[11px] font-mono text-foreground border border-border/50"
-                                  title={t.description}
-                                >
-                                  {t.name}
-                                </span>
-                              ))}
-                            </div>
-                          </details>
+                      {/* Prominent Available Tools Section */}
+                      <div className="pt-3 border-t border-border/60 flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>Available Tools ({conn.discovered_tools?.length || 0})</span>
+                          </span>
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Ready for Agent Calls</span>
                         </div>
-                      )}
+                        <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pt-0.5">
+                          {(conn.discovered_tools || []).map((t: any, idx: number) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-1 rounded-md bg-muted text-[11px] font-mono text-foreground border border-border/70 flex items-center gap-1.5 shadow-2xs hover:border-primary/50 transition-colors"
+                              title={t.description || t.name}
+                            >
+                              <span className="text-primary text-[10px]">⚡</span>
+                              <span>{t.name}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   );
                 })

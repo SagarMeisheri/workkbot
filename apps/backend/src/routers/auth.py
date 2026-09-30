@@ -128,19 +128,23 @@ async def get_connector_oauth_url(
             "openid email profile "
             "https://www.googleapis.com/auth/gmail.readonly "
             "https://www.googleapis.com/auth/gmail.compose "
-            "https://www.googleapis.com/auth/drive.readonly "
+            "https://www.googleapis.com/auth/gmail.modify "
+            "https://www.googleapis.com/auth/drive "
             "https://www.googleapis.com/auth/drive.file "
-            "https://www.googleapis.com/auth/documents.readonly "
+            "https://www.googleapis.com/auth/drive.readonly "
             "https://www.googleapis.com/auth/documents "
-            "https://www.googleapis.com/auth/spreadsheets.readonly "
+            "https://www.googleapis.com/auth/documents.readonly "
             "https://www.googleapis.com/auth/spreadsheets "
-            "https://www.googleapis.com/auth/presentations.readonly "
+            "https://www.googleapis.com/auth/spreadsheets.readonly "
             "https://www.googleapis.com/auth/presentations "
+            "https://www.googleapis.com/auth/presentations.readonly "
+            "https://www.googleapis.com/auth/calendar "
+            "https://www.googleapis.com/auth/calendar.events "
             "https://www.googleapis.com/auth/calendar.calendarlist.readonly "
-            "https://www.googleapis.com/auth/calendar.events.freebusy "
-            "https://www.googleapis.com/auth/calendar.events.readonly "
             "https://www.googleapis.com/auth/contacts.readonly "
-            "https://www.googleapis.com/auth/directory.readonly"
+            "https://www.googleapis.com/auth/directory.readonly "
+            "https://www.googleapis.com/auth/chat.spaces.readonly "
+            "https://www.googleapis.com/auth/chat.messages.readonly"
         )
         url = (
             f"https://accounts.google.com/o/oauth2/v2/auth?"
@@ -226,6 +230,16 @@ async def connector_oauth_callback(
         "zoho_workplace": ["ZohoBooks.invoices.READ", "ZohoCRM.modules.leads.READ"],
     }.get(payload.provider, ["read", "write"])
 
+    raw_scope = token_payload.get("scope", "")
+    if isinstance(raw_scope, str) and raw_scope:
+        actual_scopes = [
+            s.replace("https://www.googleapis.com/auth/", "")
+            for s in raw_scope.split()
+            if not s.startswith("openid") and not s.startswith("email") and not s.startswith("profile")
+        ]
+    else:
+        actual_scopes = default_scopes
+
     # 1. Seal token in Supabase Vault (pgsodium)
     vault_secret_id = supabase_admin.store_vault_secret(
         user_id=current_user.id,
@@ -246,29 +260,41 @@ async def connector_oauth_callback(
     conn_id = str(uuid.uuid4())
     now_str = datetime.now(timezone.utc).isoformat()
     
-    # Store in live Supabase table
+    # Store in live Supabase table via secure RPC
     client = supabase_admin.get_client()
     if client:
         try:
-            client.table("mcp_connections").delete().eq("user_id", current_user.id).eq("provider", payload.provider).execute()
-            client.table("mcp_connections").insert({
-                "id": conn_id,
-                "user_id": current_user.id,
-                "org_id": current_user.org_id,
-                "provider": payload.provider,
-                "scopes": default_scopes,
-                "vault_secret_id": vault_secret_id,
-                "status": "active",
-                "created_at": now_str,
-                "updated_at": now_str,
+            client.rpc("upsert_mcp_connection", {
+                "p_user_id": current_user.id,
+                "p_org_id": current_user.org_id,
+                "p_provider": payload.provider,
+                "p_scopes": actual_scopes,
+                "p_vault_secret_id": vault_secret_id,
+                "p_discovered_tools": discovered_tools,
             }).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error calling upsert_mcp_connection RPC: %s", e)
+            try:
+                client.table("mcp_connections").delete().eq("user_id", current_user.id).eq("provider", payload.provider).execute()
+                client.table("mcp_connections").insert({
+                    "id": conn_id,
+                    "user_id": current_user.id,
+                    "org_id": current_user.org_id,
+                    "provider": payload.provider,
+                    "scopes": actual_scopes,
+                    "vault_secret_id": vault_secret_id,
+                    "status": "active",
+                    "discovered_tools": discovered_tools,
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                }).execute()
+            except Exception as e2:
+                logger.warning("Fallback mcp_connections insert error: %s", e2)
 
     # Remove existing active connection if replacing in local store
     _local_db["mcp_connections"] = [
-        c for c in _local_db["mcp_connections"]
-        if not (c["user_id"] == current_user.id and c["provider"] == payload.provider)
+        c for c in _local_db.get("mcp_connections", [])
+        if not (c.get("user_id") == current_user.id and c.get("provider") == payload.provider)
     ]
 
     record = {
@@ -276,7 +302,7 @@ async def connector_oauth_callback(
         "user_id": current_user.id,
         "org_id": current_user.org_id,
         "provider": payload.provider,
-        "scopes": default_scopes,
+        "scopes": actual_scopes,
         "vault_secret_id": vault_secret_id,
         "status": "active",
         "discovered_tools": discovered_tools,
@@ -346,6 +372,16 @@ async def connector_oauth_callback_get(
         "calendar.events",
     ]
 
+    raw_scope = token_payload.get("scope", "")
+    if isinstance(raw_scope, str) and raw_scope:
+        actual_scopes = [
+            s.replace("https://www.googleapis.com/auth/", "")
+            for s in raw_scope.split()
+            if not s.startswith("openid") and not s.startswith("email") and not s.startswith("profile")
+        ]
+    else:
+        actual_scopes = default_scopes
+
     # 1. Seal token in Supabase Vault
     vault_secret_id = supabase_admin.store_vault_secret(
         user_id=user_id,
@@ -369,31 +405,43 @@ async def connector_oauth_callback_get(
     client = supabase_admin.get_client()
     if client:
         try:
-            client.table("mcp_connections").delete().eq("user_id", user_id).eq("provider", provider).execute()
-            client.table("mcp_connections").insert({
-                "id": conn_id,
-                "user_id": user_id,
-                "org_id": org_id,
-                "provider": provider,
-                "scopes": default_scopes,
-                "vault_secret_id": vault_secret_id,
-                "status": "active",
-                "created_at": now_str,
-                "updated_at": now_str,
+            client.rpc("upsert_mcp_connection", {
+                "p_user_id": user_id,
+                "p_org_id": org_id,
+                "p_provider": provider,
+                "p_scopes": actual_scopes,
+                "p_vault_secret_id": vault_secret_id,
+                "p_discovered_tools": discovered_tools,
             }).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error calling upsert_mcp_connection RPC: %s", e)
+            try:
+                client.table("mcp_connections").delete().eq("user_id", user_id).eq("provider", provider).execute()
+                client.table("mcp_connections").insert({
+                    "id": conn_id,
+                    "user_id": user_id,
+                    "org_id": org_id,
+                    "provider": provider,
+                    "scopes": actual_scopes,
+                    "vault_secret_id": vault_secret_id,
+                    "status": "active",
+                    "discovered_tools": discovered_tools,
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                }).execute()
+            except Exception as e2:
+                logger.warning("Supabase mcp_connections insert error: %s", e2)
 
     _local_db["mcp_connections"] = [
         c for c in _local_db.get("mcp_connections", [])
-        if not (c["user_id"] == user_id and c["provider"] == provider)
+        if not (c.get("user_id") == user_id and c.get("provider") == provider)
     ]
     _local_db["mcp_connections"].append({
         "id": conn_id,
         "user_id": user_id,
         "org_id": org_id,
         "provider": provider,
-        "scopes": default_scopes,
+        "scopes": actual_scopes,
         "vault_secret_id": vault_secret_id,
         "status": "active",
         "discovered_tools": discovered_tools,
@@ -441,7 +489,6 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
                 client.table("mcp_connections")
                 .select("*")
                 .eq("user_id", current_user.id)
-                .eq("org_id", current_user.org_id)
                 .execute()
             )
             if res.data:
@@ -458,8 +505,8 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
                     )
                     for c in res.data
                 ]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error loading connectors from Supabase: %s", e)
 
     connections = [
         McpConnectionResponse(
@@ -472,8 +519,8 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
             updated_at=c["updated_at"],
             discovered_tools=c.get("discovered_tools") or mcp_discovery_service.get_discovered_tools(current_user.id, c["provider"]),
         )
-        for c in _local_db["mcp_connections"]
-        if c["user_id"] == current_user.id and c["org_id"] == current_user.org_id
+        for c in _local_db.get("mcp_connections", [])
+        if c.get("user_id") == current_user.id
     ]
     return connections
 

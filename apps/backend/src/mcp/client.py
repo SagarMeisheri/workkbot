@@ -167,10 +167,12 @@ class GoogleWorkspaceMCPClient:
                         headers={"Authorization": token if token.startswith("Bearer ") else f"Bearer {token}", "Content-Type": "application/json"}
                     )
 
-                if resp.status_code == 200:
+                try:
                     data = resp.json()
                     if isinstance(data, dict) and "result" in data and "tools" in data["result"]:
                         return data["result"]["tools"]
+                except Exception:
+                    pass
         except Exception as e:
             logger.debug("MCP tools/list failed for %s: %s", service, e)
         return []

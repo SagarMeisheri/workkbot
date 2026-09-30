@@ -78,6 +78,19 @@ async def _get_active_google_token() -> Optional[str]:
         return secret_data.get("access_token")
 
 
+def strip_schema_descriptions(schema: Any) -> Any:
+    """Recursively removes 'description' and verbose docs from JSON schema to prevent massive prompt bloat."""
+    if isinstance(schema, dict):
+        return {
+            k: strip_schema_descriptions(v)
+            for k, v in schema.items()
+            if k not in ("description", "x-google-enum-descriptions")
+        }
+    elif isinstance(schema, list):
+        return [strip_schema_descriptions(item) for item in schema]
+    return schema
+
+
 try:
     from google.adk.tools import BaseTool
     from google.adk.tools.base_toolset import BaseToolset
@@ -95,17 +108,18 @@ try:
             service: str,
             provider: str = "google_workspace",
         ):
-            super().__init__(name=name, description=description)
+            # Omit tool description from the agent prompt to avoid prompt bloat
+            super().__init__(name=name, description="")
             self.original_name = original_name
             self.service = service
             self.provider = provider
-            self._schema = parameters_json_schema or {"type": "object", "properties": {}}
+            self._schema = strip_schema_descriptions(parameters_json_schema) or {"type": "object", "properties": {}}
 
         def _get_declaration(self) -> Optional[types.FunctionDeclaration]:
-            """Returns dynamic FunctionDeclaration with schema from the MCP server."""
+            """Returns lightweight FunctionDeclaration containing only tool name and stripped parameter schema."""
             return types.FunctionDeclaration(
                 name=self.name,
-                description=self.description,
+                description="",
                 parameters_json_schema=self._schema,
             )
 

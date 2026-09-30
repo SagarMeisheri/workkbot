@@ -56,23 +56,18 @@ class SupabaseAdminService:
         return self._client
 
     def get_authenticated_client(self, token: Optional[str] = None):
-        """Returns client authenticated with token if valid ES256 Supabase JWT, else clean backend key."""
+        """Returns client authenticated with user token for Supabase PostgREST RLS."""
         client = self.get_client()
         if not client:
             return None
         if token:
             try:
-                header = jwt.get_unverified_header(token)
-                if header.get("alg") == "ES256":
-                    client.postgrest.auth(token)
-                    return client
-            except Exception:
-                pass
-        # Fall back to clean backend key so PostgREST never fails with PGRST301
-        try:
-            client.postgrest.auth(self.service_role_key or settings.SUPABASE_ANON_KEY)
-        except Exception:
-            pass
+                from supabase import create_client
+                user_client = create_client(self.supabase_url, self.service_role_key)
+                user_client.postgrest.auth(token)
+                return user_client
+            except Exception as e:
+                logger.debug("Error creating user-authenticated client: %s", e)
         return client
 
     def validate_email_domain(self, email: str) -> Tuple[bool, Optional[str]]:

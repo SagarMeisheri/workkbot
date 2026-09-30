@@ -43,13 +43,16 @@ class McpDiscoveryService:
                     for t in server_tools:
                         raw_name = t.get("name", "")
                         clean_name = raw_name.replace(".", "_")
+                        schema = t.get("inputSchema", {"type": "object", "properties": {}})
+                        from src.mcp.google_tools import strip_schema_descriptions
+                        clean_schema = strip_schema_descriptions(schema)
                         discovered_tools.append({
                             "name": clean_name,
                             "original_name": raw_name,
                             "service": service,
                             "provider": provider,
-                            "description": t.get("description", f"Google {service} tool"),
-                            "inputSchema": t.get("inputSchema", {"type": "object", "properties": {}}),
+                            "description": "",
+                            "inputSchema": clean_schema,
                         })
                 except Exception as e:
                     logger.debug("Discovery on service %s failed: %s", service, e)
@@ -71,6 +74,18 @@ class McpDiscoveryService:
                 conn["discovered_tools"] = discovered_tools
                 break
 
+        # 3. Update Supabase table if client available
+        client = supabase_admin.get_client()
+        if client:
+            try:
+                client.rpc("update_mcp_discovered_tools", {
+                    "p_user_id": user_id,
+                    "p_provider": provider,
+                    "p_discovered_tools": discovered_tools,
+                }).execute()
+            except Exception as e:
+                logger.debug("Failed updating discovered_tools in Supabase: %s", e)
+
         return discovered_tools
 
     def get_discovered_tools(
@@ -91,19 +106,13 @@ class McpDiscoveryService:
                 if tools:
                     user_dict[p] = tools
 
-        # 2. Check live Supabase table for active connections with stored tools
+        # 2. Check live Supabase table for active connections with stored tools via secure RPC
         client = supabase_admin.get_client()
         if client:
             try:
-                res = (
-                    client.table("mcp_connections")
-                    .select("provider, status, discovered_tools")
-                    .eq("user_id", user_id)
-                    .eq("status", "active")
-                    .execute()
-                )
-                if res.data:
-                    for r in res.data:
+                rpc_res = client.rpc("get_user_mcp_connections", {"p_user_id": user_id}).execute()
+                if rpc_res.data:
+                    for r in rpc_res.data:
                         p = r.get("provider")
                         if provider and p != provider:
                             continue
