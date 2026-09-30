@@ -129,18 +129,28 @@ class ComposioService:
         if client:
             try:
                 if session_id:
-                    session_obj = client.use(session_id, mcp=True)
+                    try:
+                        session_obj = client.use(session_id, mcp=True)
+                    except Exception as use_err:
+                        logger.debug(
+                            "Composio client.use('%s') not found on cloud, creating new session for %s: %s",
+                            session_id,
+                            composio_user_id,
+                            use_err,
+                        )
+                        session_obj = client.create(user_id=composio_user_id, mcp=True)
                 else:
                     session_obj = client.create(user_id=composio_user_id, mcp=True)
-                    if hasattr(session_obj, "session_id"):
-                        active_sess_id = session_obj.session_id
-                    elif hasattr(session_obj, "id"):
-                        active_sess_id = session_obj.id
+
+                if hasattr(session_obj, "session_id"):
+                    active_sess_id = session_obj.session_id
+                elif hasattr(session_obj, "id"):
+                    active_sess_id = session_obj.id
 
                 if hasattr(session_obj, "mcp") and hasattr(session_obj.mcp, "url"):
                     mcp_url = session_obj.mcp.url
             except Exception as e:
-                logger.error("Live Composio session create/use failed: %s", e)
+                logger.error("Live Composio session create failed: %s", e)
                 # Allow fallback for offline sandboxed test runners
                 if "not allowed by policy" in str(e).lower() or os.environ.get("PYTEST_CURRENT_TEST"):
                     logger.debug("Falling back to local session mock for sandbox/test: %s", e)
@@ -161,6 +171,8 @@ class ComposioService:
             "connected_accounts": [],
         }
         self._active_sessions[active_sess_id] = session_record
+        if session_id and session_id != active_sess_id:
+            self._active_sessions[session_id] = session_record
 
         # 2. Persist connection mapping in Supabase public.tool_connections
         db_client = supabase_admin.get_authenticated_client(auth_token) if auth_token else supabase_admin.get_client()
