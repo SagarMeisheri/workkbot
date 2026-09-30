@@ -52,6 +52,12 @@ mcp_routes:
     description: "Zoho Workplace MCP (.in datacenter: Zoho Books, Zoho CRM, Zoho Mail)"
     auth_header_passthrough: "X-Upstream-Authorization"
 
+  - path: "/mcp/composio"
+    upstream_type: "session"
+    target_url: "dynamic"
+    description: "Composio Platform v3.1 User-Scoped Session MCP Route"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
 # Primary LLM Routing with Circuit Breaker Failover
 llm_router:
   default_route: "vertex-gemini-flash"

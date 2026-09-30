@@ -21,6 +21,7 @@ dependencies = [
     "spacy>=3.8.0",
     "google-cloud-dlp>=3.18.0",
     "google-cloud-logging>=3.11.0",
+    "composio>=0.22.0",
 ]
 
 [project.optional-dependencies]

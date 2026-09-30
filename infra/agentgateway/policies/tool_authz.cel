@@ -1,0 +1,14 @@
+// Common Expression Language (CEL) Tool Authorization Rules (Spec 04, R04.2)
+// Blocks cross-tenant and cross-user MCP tool execution and restricts dangerous custom tools.
+
+// 1. Strict Tenant & User Isolation
+// The authenticated sub must own the resource, and the org_id claim must match the resource org_id.
+rule enforce_tenant_and_user_isolation {
+    request.auth.claims.sub == resource.owner && request.auth.claims.org_id == resource.org_id
+}
+
+// 2. Custom Tool Execution Privileges
+// Unverified custom MCP endpoints require tool-admin or org-admin role.
+rule allow_verified_or_admin_custom_tools {
+    resource.is_verified || request.auth.claims.role in ['tool-admin', 'org-admin']
+}

@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     FALLBACK_MODEL: str = os.getenv("FALLBACK_MODEL", "gemini-3.7-flash")
     LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     
+    # Composio Platform API Key (Spec 04)
+    COMPOSIO_API_KEY: str = os.getenv("COMPOSIO_API_KEY", "")
+    
     model_config = {
         "env_file": [
             str(Path(__file__).resolve().parent.parent / ".env"),

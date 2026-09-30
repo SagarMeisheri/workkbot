@@ -15,6 +15,8 @@ import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import { HitlConfirmationCard } from "@/components/chat/hitl-confirmation-card";
+import { ToolGroup } from "@/components/assistant-ui/elements/tool-group.aui";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/config";
 
@@ -48,6 +50,7 @@ export default function WorkspacePage() {
     setMessages,
     isStreaming,
     sendMessage,
+    handleConfirmTool,
     flagModalState,
     handleOpenFlagModal,
     handleCloseFlagModal,
@@ -452,6 +455,33 @@ export default function WorkspacePage() {
                         {msg.role === "assistant" && msg.thought && (
                           <Reasoning text={msg.thought} />
                         )}
+
+                        {/* Collapsible Tool Execution Traces (Spec 04, R04.4) */}
+                        {msg.role === "assistant" && msg.toolTraces && msg.toolTraces.length > 0 && (
+                          <div className="w-full max-w-[85%]">
+                            <ToolGroup traces={msg.toolTraces} />
+                          </div>
+                        )}
+
+                        {/* In-Chat HITL Confirmation Challenge (Spec 04, R04.4) */}
+                        {msg.role === "assistant" &&
+                          msg.confirmationRequests &&
+                          msg.confirmationRequests.length > 0 && (
+                            <div className="w-full max-w-[85%]">
+                              {msg.confirmationRequests.map((conf) => (
+                                <HitlConfirmationCard
+                                  key={conf.toolCallId}
+                                  toolCallId={conf.toolCallId}
+                                  toolName={conf.toolName}
+                                  provider={conf.provider}
+                                  parameters={conf.parameters}
+                                  hint={conf.hint}
+                                  status={conf.status}
+                                  onConfirm={handleConfirmTool}
+                                />
+                              ))}
+                            </div>
+                          )}
 
                         <div
                           className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] ${

@@ -51,6 +51,7 @@ class AdkRunnerSingleton:
         state_delta: Optional[Dict[str, Any]] = None,
         conversation_id: Optional[str] = None,
         auth_token: Optional[str] = None,
+        tool_confirmation: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Executes a conversational turn using canonical Google ADK 2.0.
@@ -89,6 +90,10 @@ class AdkRunnerSingleton:
             parts=[types.Part.from_text(text=sanitized_message)],
         )
 
+        effective_state_delta = dict(state_delta or {})
+        if tool_confirmation:
+            effective_state_delta["tool_confirmation"] = tool_confirmation
+
         model_event_id = f"evt_{uuid.uuid4().hex[:12]}_m"
         last_event_id = model_event_id
         received_partials = False
@@ -101,7 +106,7 @@ class AdkRunnerSingleton:
                 user_id=user_id,
                 session_id=session_id,
                 new_message=new_message,
-                state_delta=state_delta,
+                state_delta=effective_state_delta if effective_state_delta else None,
                 run_config=run_config,
             ):
                 if adk_event.author == "user":
@@ -112,6 +117,22 @@ class AdkRunnerSingleton:
                 is_partial = getattr(adk_event, "partial", False)
                 content = adk_event.content
                 parts_data = []
+
+                # Extract actions such as requested_tool_confirmations (Spec 04, R04.4)
+                actions_data = None
+                if hasattr(adk_event, "actions") and adk_event.actions:
+                    req_confs = getattr(adk_event.actions, "requested_tool_confirmations", None)
+                    if req_confs:
+                        actions_data = {
+                            "requested_tool_confirmations": {
+                                cid: {
+                                    "hint": getattr(c, "hint", ""),
+                                    "confirmed": getattr(c, "confirmed", False),
+                                    "payload": getattr(c, "payload", None),
+                                }
+                                for cid, c in req_confs.items()
+                            }
+                        }
 
                 if content and hasattr(content, "parts"):
                     for part in content.parts:
@@ -125,13 +146,40 @@ class AdkRunnerSingleton:
                             rehydrated_text = rehydrator.process_chunk(text_str)
                             if rehydrated_text:
                                 part_dict = {"text": rehydrated_text}
+                        elif getattr(part, "function_call", None):
+                            fc = part.function_call
+                            part_dict = {
+                                "functionCall": {
+                                    "name": getattr(fc, "name", ""),
+                                    "args": getattr(fc, "args", {}),
+                                    "id": getattr(fc, "id", None) or getattr(part, "id", None),
+                                }
+                            }
+                        elif getattr(part, "function_response", None):
+                            fr = part.function_response
+                            part_dict = {
+                                "functionResponse": {
+                                    "name": getattr(fr, "name", ""),
+                                    "response": getattr(fr, "response", {}),
+                                    "id": getattr(fr, "id", None) or getattr(part, "id", None),
+                                }
+                            }
                         if part_dict:
                             parts_data.append(part_dict)
+
+                if actions_data and not parts_data:
+                    yield {
+                        "id": eid,
+                        "author": "model",
+                        "branch": branch_name,
+                        "actions": actions_data,
+                        "turnComplete": False,
+                    }
 
                 if is_partial:
                     if parts_data:
                         received_partials = True
-                        yield {
+                        chunk_dict = {
                             "id": eid,
                             "author": "model",
                             "branch": branch_name,
@@ -141,10 +189,13 @@ class AdkRunnerSingleton:
                             },
                             "turnComplete": False,
                         }
+                        if actions_data:
+                            chunk_dict["actions"] = actions_data
+                        yield chunk_dict
                 else:
                     # Non-partial event: if no partials were received, stream this whole content
                     if not received_partials and parts_data:
-                        yield {
+                        chunk_dict = {
                             "id": eid,
                             "author": "model",
                             "branch": branch_name,
@@ -154,6 +205,9 @@ class AdkRunnerSingleton:
                             },
                             "turnComplete": False,
                         }
+                        if actions_data:
+                            chunk_dict["actions"] = actions_data
+                        yield chunk_dict
 
             # Flush any remaining tail in rehydrator buffer
             flushed_tail = rehydrator.flush()

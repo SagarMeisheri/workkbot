@@ -27,6 +27,10 @@ class ChatStreamRequest(BaseModel):
     model: Optional[str] = None
     stateDelta: Optional[Dict[str, Any]] = None
     type: Optional[str] = "message"
+    tool_call_id: Optional[str] = None
+    name: Optional[str] = None
+    content: Optional[Any] = None
+    status: Optional[str] = None
 
 
 class ContentReportRequest(BaseModel):
@@ -95,17 +99,33 @@ async def chat_stream_endpoint(
     session_id = payload.sessionId or f"sess_{uuid.uuid4().hex[:12]}"
     model_choice = payload.model or x_model_tier
 
-    event_generator = runner_singleton.run_turn_stream(
-        user_id=current_user.id,
-        org_id=current_user.org_id,
-        session_id=session_id,
-        message=raw_message,
-        checkpoint_id=payload.checkpointId,
-        model_preference=model_choice,
-        state_delta=payload.stateDelta,
-        conversation_id=payload.conversationId,
-        auth_token=current_user.token,
-    )
+    # Extract tool confirmation if present
+    tool_confirmation = None
+    if payload.type == "tool" or payload.name == "adk_request_confirmation":
+        if isinstance(payload.content, str):
+            try:
+                import json
+                tool_confirmation = json.loads(payload.content)
+            except Exception:
+                tool_confirmation = {"confirmed": payload.content.lower() in ("true", "confirmed", "yes")}
+        elif isinstance(payload.content, dict):
+            tool_confirmation = payload.content
+
+    runner_kwargs = {
+        "user_id": current_user.id,
+        "org_id": current_user.org_id,
+        "session_id": session_id,
+        "message": raw_message,
+        "checkpoint_id": payload.checkpointId,
+        "model_preference": model_choice,
+        "state_delta": payload.stateDelta,
+        "conversation_id": payload.conversationId,
+        "auth_token": current_user.token,
+    }
+    if tool_confirmation is not None:
+        runner_kwargs["tool_confirmation"] = tool_confirmation
+
+    event_generator = runner_singleton.run_turn_stream(**runner_kwargs)
 
     return StreamingResponse(
         format_adk_sse_stream(event_generator),
