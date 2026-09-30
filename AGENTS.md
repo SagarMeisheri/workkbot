@@ -18,7 +18,25 @@ Every code modification, feature addition, or architectural refactor in Workkbot
 
 ---
 
-## 2. Command Palette (Fast Execution Guide)
+## 2. Agent Tooling, MCP Servers & Skills Mandate
+
+Autonomous agents working on Workkbot **MUST** actively utilize the connected MCP servers, domain skills, and web search to solve tasks rather than guessing or relying on stale pre-trained weights:
+
+### 1. Connected MCP Servers
+- **Supabase MCP Server (`supabase`)**: Use for inspecting database schemas, listing tables/migrations, executing SQL queries, querying logs, and managing project configurations.
+- **Google Cloud MCP Servers (`bigquery`, `cloudrun`, `cloud-sql`, `google-cloud-logging`, `google-cloud-monitoring`, `google-cloud-pubsub`)**: Use for querying GCP services, logs, BigQuery tables, Cloud Run deployments, and infrastructure state.
+
+### 2. Specialized Skills Reference
+- **assistant-ui Skills** (`setup`, `elements`, `runtime`, `tools`, `thread-list`, `markdown`, `copilots`, `generative-ui`): Mandatory reference when building or modifying chat UI components, client-side tools, and `@assistant-ui/react` runtime hooks.
+- **Google ADK Skills** (`adk-agent-builder`, `adk-architecture`, `adk-debug`, `google-antigravity-sdk`): Mandatory reference when designing or debugging `google-adk` agents, runners, HITL confirmation cards, and workflow graphs.
+- **Supabase Skills** (`supabase`, `supabase-postgres-best-practices`): Mandatory reference before altering schemas, authoring migrations, defining RLS policies, or tuning PostgreSQL performance.
+
+### 3. Web Search & Documentation Verification
+- Always use **Web Search** to verify current API signatures, breaking changes, framework release notes, and error codes before modifying application code.
+
+---
+
+## 3. Command Palette (Fast Execution Guide)
 
 ### Python Backend (`apps/backend`)
 - **Package Manager**: Use `uv` strictly.
@@ -56,7 +74,7 @@ Every code modification, feature addition, or architectural refactor in Workkbot
 
 ---
 
-## 3. Strict Non-Negotiable Invariants
+## 4. Strict Non-Negotiable Invariants
 
 ### 1. Security & Token Isolation
 - **Zero Plaintext Tokens**: External OAuth credentials (Google Workspace, Zoho, Notion, Slack, Canva) must never be stored in plain text in database rows or logs. Always seal in Supabase Vault (`pgsodium`) as `mcp_token_${user_id}_${provider}`.
@@ -78,7 +96,7 @@ Every code modification, feature addition, or architectural refactor in Workkbot
 
 ---
 
-## 4. Key Code Locations
+## 5. Key Code Locations
 
 | Responsibility | Path | Notes |
 |---|---|---|
@@ -102,7 +120,7 @@ Every code modification, feature addition, or architectural refactor in Workkbot
 
 ---
 
-## 5. Verification Checklist for New Changes
+## 6. Verification Checklist for New Changes
 
 Before completing any task or opening a pull request, you **MUST**:
 1. Run the backend test suite:
