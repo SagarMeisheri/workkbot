@@ -25,14 +25,15 @@ try:
         tool_rehydration_callback,
         tool_output_mask_callback,
     )
+    from src.mcp.google_tools import dynamic_mcp_toolset
 
-    # Canonical Google ADK 2.0 LlmAgent instance
+    # Canonical Google ADK 2.0 LlmAgent instance with dynamic MCP toolset
     root_agent = Agent(
         name="workkbot_core",
         model=settings.DEFAULT_MODEL,
         description="Sovereign AI enterprise coworker for Indian SMBs and global teams.",
         instruction=WORKKBOT_SYSTEM_INSTRUCTION,
-        tools=[],
+        tools=[dynamic_mcp_toolset],
         before_model_callback=pii_anonymize_callback,
         before_tool_callback=tool_rehydration_callback,
         after_tool_callback=tool_output_mask_callback,

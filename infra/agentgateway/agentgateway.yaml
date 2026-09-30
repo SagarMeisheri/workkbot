@@ -34,17 +34,60 @@ security:
       - "<|im_end|>"
       - "[INST]"
       - "[/INST]"
+      - "SYSTEM OVERRIDE:"
     max_tool_description_tokens: 512
     reject_shell_metacharacters: true
 
-# Upstream Federated MCP Routes
+# Upstream Federated MCP Routes (Google Workspace Remote MCP over Streamable HTTP)
 mcp_routes:
-  - path: "/mcp/google-workspace"
-    upstream_type: "sse"
-    target_url: "http://127.0.0.1:9001/sse"
-    description: "Google Workspace MCP (Drive, Gmail, Docs, Calendar)"
+  - path: "/mcp/google/gmail"
+    upstream_type: "streamable_http"
+    target_url: "https://gmailmcp.googleapis.com/mcp/v1"
+    description: "Google Workspace Gmail Remote MCP Server"
     auth_header_passthrough: "X-Upstream-Authorization"
-  
+
+  - path: "/mcp/google/drive"
+    upstream_type: "streamable_http"
+    target_url: "https://drivemcp.googleapis.com/mcp/v1"
+    description: "Google Workspace Drive Remote MCP Server"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
+  - path: "/mcp/google/docs"
+    upstream_type: "streamable_http"
+    target_url: "https://docsmcp.googleapis.com/mcp/v1"
+    description: "Google Workspace Docs Remote MCP Server"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
+  - path: "/mcp/google/sheets"
+    upstream_type: "streamable_http"
+    target_url: "https://sheetsmcp.googleapis.com/mcp/v1"
+    description: "Google Workspace Sheets Remote MCP Server"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
+  - path: "/mcp/google/slides"
+    upstream_type: "streamable_http"
+    target_url: "https://slidesmcp.googleapis.com/mcp/v1"
+    description: "Google Workspace Slides Remote MCP Server"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
+  - path: "/mcp/google/calendar"
+    upstream_type: "streamable_http"
+    target_url: "https://calendarmcp.googleapis.com/mcp/v1"
+    description: "Google Workspace Calendar Remote MCP Server"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
+  - path: "/mcp/google/chat"
+    upstream_type: "streamable_http"
+    target_url: "https://chatmcp.googleapis.com/mcp/v1"
+    description: "Google Workspace Chat Remote MCP Server"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
+  - path: "/mcp/google/people"
+    upstream_type: "streamable_http"
+    target_url: "https://people.googleapis.com/mcp/v1"
+    description: "Google Workspace People Remote MCP Server"
+    auth_header_passthrough: "X-Upstream-Authorization"
+
   - path: "/mcp/zoho-workplace"
     upstream_type: "sse"
     target_url: "http://127.0.0.1:9002/sse"

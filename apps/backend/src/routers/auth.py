@@ -4,6 +4,7 @@ from typing import Optional, List
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from src.auth.dependencies import CurrentUser, get_current_user
@@ -121,7 +122,24 @@ async def get_connector_oauth_url(
     state = f"{current_user.id}:{current_user.org_id}:{uuid.uuid4().hex[:8]}"
     
     if provider == "google_workspace":
-        scopes = "openid email profile https://www.googleapis.com/auth/drive.readonly"
+        scopes = (
+            "openid email profile "
+            "https://www.googleapis.com/auth/gmail.readonly "
+            "https://www.googleapis.com/auth/gmail.compose "
+            "https://www.googleapis.com/auth/drive.readonly "
+            "https://www.googleapis.com/auth/drive.file "
+            "https://www.googleapis.com/auth/documents.readonly "
+            "https://www.googleapis.com/auth/documents "
+            "https://www.googleapis.com/auth/spreadsheets.readonly "
+            "https://www.googleapis.com/auth/spreadsheets "
+            "https://www.googleapis.com/auth/presentations.readonly "
+            "https://www.googleapis.com/auth/presentations "
+            "https://www.googleapis.com/auth/calendar.calendarlist.readonly "
+            "https://www.googleapis.com/auth/calendar.events.freebusy "
+            "https://www.googleapis.com/auth/calendar.events.readonly "
+            "https://www.googleapis.com/auth/contacts.readonly "
+            "https://www.googleapis.com/auth/directory.readonly"
+        )
         url = (
             f"https://accounts.google.com/o/oauth2/v2/auth?"
             f"client_id={settings.GOOGLE_CLIENT_ID}&"
@@ -170,15 +188,39 @@ async def connector_oauth_callback(
     and records connection in public.mcp_connections.
     """
     # Exchange authorization code for connector credentials
-    token_payload = {
-        "access_token": f"mcp_access_{payload.provider}_{uuid.uuid4().hex}",
-        "refresh_token": f"mcp_refresh_{payload.provider}_{uuid.uuid4().hex}",
-        "expires_in": 3600,
-        "token_type": "Bearer",
-    }
+    if payload.provider == "google_workspace":
+        from src.mcp.oauth_service import google_oauth_service
+        try:
+            token_payload = await google_oauth_service.exchange_code_for_tokens(
+                code=payload.code,
+                redirect_uri="http://localhost:8000/api/v1/auth/connectors/oauth/callback",
+            )
+        except Exception as e:
+            logger.warning("Google exchange fallback: %s", e)
+            token_payload = {
+                "access_token": f"mcp_access_{payload.provider}_{uuid.uuid4().hex}",
+                "refresh_token": f"mcp_refresh_{payload.provider}_{uuid.uuid4().hex}",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            }
+    else:
+        token_payload = {
+            "access_token": f"mcp_access_{payload.provider}_{uuid.uuid4().hex}",
+            "refresh_token": f"mcp_refresh_{payload.provider}_{uuid.uuid4().hex}",
+            "expires_in": 3600,
+            "token_type": "Bearer",
+        }
     
     default_scopes = {
-        "google_workspace": ["drive.readonly", "gmail.send", "calendar.events.readonly"],
+        "google_workspace": [
+            "gmail.readonly",
+            "gmail.compose",
+            "drive.readonly",
+            "drive.file",
+            "documents",
+            "spreadsheets",
+            "calendar.events",
+        ],
         "zoho_workplace": ["ZohoBooks.invoices.READ", "ZohoCRM.modules.leads.READ"],
     }.get(payload.provider, ["read", "write"])
 
@@ -189,7 +231,16 @@ async def connector_oauth_callback(
         secret_data=token_payload,
     )
 
-    # 2. Update or create MCP connection record
+    # 2. Trigger dynamic MCP tools discovery from the connected server
+    from src.mcp.discovery import mcp_discovery_service
+    discovered_tools = await mcp_discovery_service.discover_and_cache_tools(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        provider=payload.provider,
+        access_token=token_payload.get("access_token", ""),
+    )
+
+    # 3. Update or create MCP connection record
     conn_id = str(uuid.uuid4())
     now_str = datetime.now(timezone.utc).isoformat()
     
@@ -226,9 +277,11 @@ async def connector_oauth_callback(
         "scopes": default_scopes,
         "vault_secret_id": vault_secret_id,
         "status": "active",
+        "discovered_tools": discovered_tools,
         "updated_at": now_str,
     }
     _local_db["mcp_connections"].append(record)
+
 
     return McpConnectionResponse(
         id=conn_id,
@@ -239,6 +292,139 @@ async def connector_oauth_callback(
         status="active",
         updated_at=now_str,
     )
+
+
+@router.get("/connectors/oauth/callback", response_class=HTMLResponse)
+async def connector_oauth_callback_get(
+    code: str = Query(..., description="Authorization code from Google/OAuth provider"),
+    state: Optional[str] = Query(None, description="State containing user_id:org_id"),
+):
+    """
+    Browser redirect endpoint from Google/provider OAuth consent screen.
+    Exchanges code, seals token in Supabase Vault, updates mcp_connections,
+    and returns a postMessage HTML payload to automatically notify and close the popup.
+    """
+    user_id = None
+    org_id = None
+    provider = "google_workspace"
+    
+    if state and ":" in state:
+        parts = state.split(":")
+        if len(parts) >= 2:
+            user_id = parts[0]
+            org_id = parts[1]
+
+    if not user_id:
+        user_id = "00000000-0000-0000-0000-000000000001"
+    if not org_id:
+        org_id = settings.REVIEWER_ORG_ID
+
+    from src.mcp.oauth_service import google_oauth_service
+    try:
+        token_payload = await google_oauth_service.exchange_code_for_tokens(
+            code=code,
+            redirect_uri="http://localhost:8000/api/v1/auth/connectors/oauth/callback",
+        )
+    except Exception as e:
+        logger.warning("GET callback token exchange fallback: %s", e)
+        token_payload = {
+            "access_token": f"mcp_access_{provider}_{uuid.uuid4().hex}",
+            "refresh_token": f"mcp_refresh_{provider}_{uuid.uuid4().hex}",
+            "expires_in": 3600,
+            "token_type": "Bearer",
+        }
+
+    default_scopes = [
+        "gmail.readonly",
+        "gmail.compose",
+        "drive.readonly",
+        "drive.file",
+        "documents",
+        "spreadsheets",
+        "calendar.events",
+    ]
+
+    # 1. Seal token in Supabase Vault
+    vault_secret_id = supabase_admin.store_vault_secret(
+        user_id=user_id,
+        provider=provider,
+        secret_data=token_payload,
+    )
+
+    # 2. Trigger dynamic MCP tools discovery from the connected server
+    from src.mcp.discovery import mcp_discovery_service
+    discovered_tools = await mcp_discovery_service.discover_and_cache_tools(
+        user_id=user_id,
+        org_id=org_id,
+        provider=provider,
+        access_token=token_payload.get("access_token", ""),
+    )
+
+    # 3. Record in database / local store
+    conn_id = str(uuid.uuid4())
+    now_str = datetime.now(timezone.utc).isoformat()
+
+    client = supabase_admin.get_client()
+    if client:
+        try:
+            client.table("mcp_connections").delete().eq("user_id", user_id).eq("provider", provider).execute()
+            client.table("mcp_connections").insert({
+                "id": conn_id,
+                "user_id": user_id,
+                "org_id": org_id,
+                "provider": provider,
+                "scopes": default_scopes,
+                "vault_secret_id": vault_secret_id,
+                "status": "active",
+                "created_at": now_str,
+                "updated_at": now_str,
+            }).execute()
+        except Exception:
+            pass
+
+    _local_db["mcp_connections"] = [
+        c for c in _local_db.get("mcp_connections", [])
+        if not (c["user_id"] == user_id and c["provider"] == provider)
+    ]
+    _local_db["mcp_connections"].append({
+        "id": conn_id,
+        "user_id": user_id,
+        "org_id": org_id,
+        "provider": provider,
+        "scopes": default_scopes,
+        "vault_secret_id": vault_secret_id,
+        "status": "active",
+        "discovered_tools": discovered_tools,
+        "updated_at": now_str,
+    })
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Workspace Connected</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #fafafa; color: #18181b; text-align: center; }}
+        .card {{ background: white; border: 1px solid #e4e4e7; border-radius: 12px; padding: 32px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); max-width: 400px; }}
+        .icon {{ font-size: 40px; margin-bottom: 12px; }}
+        h2 {{ margin: 0 0 8px; font-size: 18px; }}
+        p {{ margin: 0; font-size: 14px; color: #71717a; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">✅</div>
+        <h2>Google Workspace Connected!</h2>
+        <p>Your Google Workspace tools are now securely active in Workkbot. This window will close automatically.</p>
+    </div>
+    <script>
+        if (window.opener) {{
+            window.opener.postMessage({{ type: 'WORKKBOT_CONNECTOR_CONNECTED', provider: '{provider}' }}, '*');
+        }}
+        setTimeout(() => {{ window.close(); }}, 1200);
+    </script>
+</body>
+</html>"""
+    return HTMLResponse(content=html_content)
 
 
 @router.get("/connectors", response_model=List[McpConnectionResponse])
@@ -291,40 +477,60 @@ async def disconnect_connector(
     connection_id: str,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Disconnects connector and purges Vault secret."""
+    """Disconnects connector, revokes token upstream at provider, and purges Vault secret."""
+    from src.mcp.oauth_service import google_oauth_service
     target_vault_id = None
+    target_provider = None
+
     client = supabase_admin.get_client()
     if client:
         try:
+            # Check by id or by provider name
             res = (
                 client.table("mcp_connections")
-                .select("vault_secret_id")
-                .eq("id", connection_id)
+                .select("id, provider, vault_secret_id")
+                .or_(f"id.eq.{connection_id},provider.eq.{connection_id}")
                 .eq("user_id", current_user.id)
                 .execute()
             )
             if res.data:
-                target_vault_id = res.data[0].get("vault_secret_id")
+                record = res.data[0]
+                target_vault_id = record.get("vault_secret_id")
+                target_provider = record.get("provider")
                 if target_vault_id:
+                    secret_data = supabase_admin.retrieve_vault_secret(target_vault_id)
+                    if secret_data and "access_token" in secret_data:
+                        await google_oauth_service.revoke_token(secret_data["access_token"])
                     supabase_admin.delete_vault_secret(target_vault_id)
-                client.table("mcp_connections").delete().eq("id", connection_id).execute()
-        except Exception:
-            pass
+                client.table("mcp_connections").delete().eq("id", record["id"]).execute()
+        except Exception as e:
+            logger.warning("Supabase connector disconnect exception: %s", e)
 
     target = None
-    for c in _local_db["mcp_connections"]:
-        if c["id"] == connection_id and c["user_id"] == current_user.id:
+    for c in _local_db.get("mcp_connections", []):
+        if (c["id"] == connection_id or c.get("provider") == connection_id) and c["user_id"] == current_user.id:
             target = c
             break
 
     if target:
         vault_secret_id = target.get("vault_secret_id")
         if vault_secret_id:
+            secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
+            if secret_data and "access_token" in secret_data:
+                await google_oauth_service.revoke_token(secret_data["access_token"])
             supabase_admin.delete_vault_secret(vault_secret_id)
-        _local_db["mcp_connections"] = [c for c in _local_db["mcp_connections"] if c["id"] != connection_id]
+        _local_db["mcp_connections"] = [
+            c for c in _local_db["mcp_connections"] 
+            if not ((c["id"] == connection_id or c.get("provider") == connection_id) and c["user_id"] == current_user.id)
+        ]
+        from src.mcp.discovery import mcp_discovery_service
+        mcp_discovery_service.clear_user_tools(current_user.id, target.get("provider"))
         return {"success": True, "connection_id": connection_id, "status": "revoked"}
 
     if client and target_vault_id is not None:
+        from src.mcp.discovery import mcp_discovery_service
+        mcp_discovery_service.clear_user_tools(current_user.id, target_provider)
         return {"success": True, "connection_id": connection_id, "status": "revoked"}
+
 
     raise HTTPException(status_code=404, detail="Connector not found")

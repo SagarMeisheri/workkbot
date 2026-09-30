@@ -52,6 +52,16 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
     if (isOpen) {
       fetchConnections();
     }
+    const handleAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === "WORKKBOT_CONNECTOR_CONNECTED") {
+        fetchConnections();
+        setConnectingProvider(null);
+      }
+    };
+    window.addEventListener("message", handleAuthMessage);
+    return () => {
+      window.removeEventListener("message", handleAuthMessage);
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -64,7 +74,46 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
         alert("Please sign in first to connect tools.");
         return;
       }
-      // Symmetrical OAuth callback endpoint storing into Supabase Vault
+
+      // 1. Fetch provider-specific authorization URL
+      try {
+        const authRes = await fetch(
+          `${BACKEND_URL}/api/v1/auth/connectors/oauth/authorize?provider=${connector.id}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          if (authData.authorization_url) {
+            // Open centered OAuth popup for Google Workspace
+            const width = 600;
+            const height = 700;
+            const left = window.screenX + (window.outerWidth - width) / 2;
+            const top = window.screenY + (window.outerHeight - height) / 2;
+            const popup = window.open(
+              authData.authorization_url,
+              `Connect ${connector.name}`,
+              `width=${width},height=${height},left=${left},top=${top},status=no,toolbar=no,menubar=no`
+            );
+
+            if (popup) {
+              const timer = setInterval(() => {
+                if (popup.closed) {
+                  clearInterval(timer);
+                  fetchConnections();
+                  setConnectingProvider(null);
+                }
+              }, 800);
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Popup OAuth initiation notice, falling back to direct exchange:", err);
+      }
+
+      // 2. Direct exchange fallback (for reviewer mode or headless tests)
       const res = await fetch(`${BACKEND_URL}/api/v1/auth/connectors/oauth/callback`, {
         method: "POST",
         headers: {

@@ -94,7 +94,18 @@ class AdkRunnerSingleton:
         received_partials = False
         run_config = RunConfig(streaming_mode=StreamingMode.SSE)
 
-        # 4. Execute turn via canonical Google ADK Runner with StreamingMode.SSE
+        # 4. Set turn context for dynamic MCP tools resolution
+        from src.mcp.google_tools import current_turn_context
+        turn_ctx = {
+            "user_id": user_id,
+            "org_id": org_id,
+            "session_id": session_id,
+            "auth_token": auth_token,
+            "state_delta": state_delta or {},
+        }
+        token_ctx_token = current_turn_context.set(turn_ctx)
+
+        # 5. Execute turn via canonical Google ADK Runner with StreamingMode.SSE
         rehydrator = session_pii_vault.create_stream_rehydrator(session_id)
         try:
             async for adk_event in self._runner.run_async(
@@ -119,6 +130,24 @@ class AdkRunnerSingleton:
                         if getattr(part, "thought", False):
                             thought_text = getattr(part, "text", "") or ""
                             part_dict = {"thought": True, "text": thought_text}
+                        elif getattr(part, "function_call", None):
+                            fc = part.function_call
+                            part_dict = {
+                                "functionCall": {
+                                    "name": getattr(fc, "name", ""),
+                                    "args": getattr(fc, "args", {}) or {},
+                                    "id": getattr(fc, "id", None),
+                                }
+                            }
+                        elif getattr(part, "function_response", None):
+                            fr = part.function_response
+                            part_dict = {
+                                "functionResponse": {
+                                    "name": getattr(fr, "name", ""),
+                                    "response": getattr(fr, "response", {}) or {},
+                                    "id": getattr(fr, "id", None),
+                                }
+                            }
                         elif getattr(part, "text", None):
                             text_str = part.text
                             # Rehydrate tokens in model response across SSE chunk boundaries (Spec 03, R03.1 Step 8)
@@ -127,6 +156,7 @@ class AdkRunnerSingleton:
                                 part_dict = {"text": rehydrated_text}
                         if part_dict:
                             parts_data.append(part_dict)
+
 
                 if is_partial:
                     if parts_data:
@@ -206,9 +236,12 @@ class AdkRunnerSingleton:
                 "errorCode": 500,
                 "errorMessage": str(exc),
             }
+        finally:
+            current_turn_context.reset(token_ctx_token)
 
         duration = time.time() - start_time
         logger.info("Completed turn session=%s in %.3fs", session_id, duration)
 
 
 runner_singleton = AdkRunnerSingleton()
+

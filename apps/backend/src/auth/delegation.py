@@ -18,15 +18,34 @@ class TokenDelegationService:
         user_jwt: str,
     ) -> Dict[str, str]:
         """
-        Retrieves user's OAuth token from Supabase Vault and constructs
-        Agentgateway authenticated session headers.
+        Retrieves user's OAuth token from Supabase Vault, refreshes if expired,
+        and constructs Agentgateway authenticated session headers.
         """
-        # Find active connection
         connection = None
-        for conn in _local_db["mcp_connections"]:
-            if conn["user_id"] == user_id and conn["provider"] == provider and conn["status"] == "active":
-                connection = conn
-                break
+
+        # 1. Check live Supabase database
+        client = supabase_admin.get_client()
+        if client:
+            try:
+                res = (
+                    client.table("mcp_connections")
+                    .select("*")
+                    .eq("user_id", user_id)
+                    .eq("provider", provider)
+                    .eq("status", "active")
+                    .execute()
+                )
+                if res.data:
+                    connection = res.data[0]
+            except Exception:
+                pass
+
+        # 2. Check local fallback
+        if not connection:
+            for conn in _local_db.get("mcp_connections", []):
+                if conn["user_id"] == user_id and conn["provider"] == provider and conn["status"] == "active":
+                    connection = conn
+                    break
                 
         if not connection:
             raise ValueError(f"No active connection found for provider '{provider}' and user '{user_id}'")
@@ -39,12 +58,15 @@ class TokenDelegationService:
         if not vault_secret_id:
             raise ValueError("Connection lacks associated Supabase Vault secret")
             
-        # Decrypt secret from Vault
-        secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
-        if not secret_data or "access_token" not in secret_data:
-            raise ValueError("Failed to retrieve decrypted access token from Supabase Vault")
-            
-        access_token = secret_data["access_token"]
+        # Decrypt secret from Vault, checking auto-refresh for Google Workspace
+        from src.mcp.oauth_service import google_oauth_service
+        try:
+            access_token = await google_oauth_service.get_valid_access_token(vault_secret_id, user_id)
+        except Exception:
+            secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
+            if not secret_data or "access_token" not in secret_data:
+                raise ValueError("Failed to retrieve decrypted access token from Supabase Vault")
+            access_token = secret_data["access_token"]
         
         # Build headers for Agentgateway
         return {
