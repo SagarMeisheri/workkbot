@@ -3,7 +3,7 @@
 -- 1. Standard Production SMB Tenant
 INSERT INTO public.organizations (id, name, domains, is_demo)
 VALUES 
-    ('a0000000-0000-0000-0000-000000000001', 'Workkbot SMB India', ARRAY['workkbot.in', 'smbcorp.in'], false)
+    ('a0000000-0000-0000-0000-000000000001', 'Workkbot SMB India', ARRAY['workkbot.com'], false)
 ON CONFLICT (id) DO NOTHING;
 
 -- 2. Isolated Apple Reviewer Sandbox Tenant (Apple App Store Guideline 2.1)

@@ -7,13 +7,9 @@ from src.auth.client import supabase_admin
 
 def test_domain_whitelist_allowed():
     """Users with allowed corporate domains succeed."""
-    is_valid, org_id = supabase_admin.validate_email_domain("employee@workkbot.in")
+    is_valid, org_id = supabase_admin.validate_email_domain("employee@workkbot.com")
     assert is_valid is True
     assert org_id is not None
-
-    is_valid_alt, org_id_alt = supabase_admin.validate_email_domain("ops@smbcorp.in")
-    assert is_valid_alt is True
-    assert org_id_alt is not None
 
 
 def test_domain_whitelist_rejected_unapproved():

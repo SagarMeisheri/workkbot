@@ -16,7 +16,7 @@ _local_db: Dict[str, list] = {
         {
             "id": "a0000000-0000-0000-0000-000000000001",
             "name": "Workkbot SMB India",
-            "domains": ["workkbot.in", "smbcorp.in"],
+            "domains": ["workkbot.com"],
             "is_demo": False,
         },
         {
