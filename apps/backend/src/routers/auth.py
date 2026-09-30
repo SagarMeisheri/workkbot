@@ -485,22 +485,17 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
     client = supabase_admin.get_client()
     if client:
         try:
-            res = (
-                client.table("mcp_connections")
-                .select("*")
-                .eq("user_id", current_user.id)
-                .execute()
-            )
+            res = client.rpc("get_user_mcp_connections", {"p_user_id": current_user.id}).execute()
             if res.data:
                 return [
                     McpConnectionResponse(
-                        id=c["id"],
-                        user_id=c["user_id"],
-                        org_id=c["org_id"],
+                        id=str(c["id"]),
+                        user_id=str(c["user_id"]),
+                        org_id=str(c["org_id"]),
                         provider=c["provider"],
                         scopes=c.get("scopes", []),
                         status=c.get("status", "active"),
-                        updated_at=c.get("updated_at", datetime.now(timezone.utc).isoformat()),
+                        updated_at=str(c.get("updated_at") or datetime.now(timezone.utc).isoformat()),
                         discovered_tools=c.get("discovered_tools") or mcp_discovery_service.get_discovered_tools(current_user.id, c["provider"]),
                     )
                     for c in res.data
@@ -510,13 +505,13 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
 
     connections = [
         McpConnectionResponse(
-            id=c["id"],
-            user_id=c["user_id"],
-            org_id=c["org_id"],
+            id=str(c["id"]),
+            user_id=str(c["user_id"]),
+            org_id=str(c["org_id"]),
             provider=c["provider"],
-            scopes=c["scopes"],
-            status=c["status"],
-            updated_at=c["updated_at"],
+            scopes=c.get("scopes", []),
+            status=c.get("status", "active"),
+            updated_at=str(c.get("updated_at") or datetime.now(timezone.utc).isoformat()),
             discovered_tools=c.get("discovered_tools") or mcp_discovery_service.get_discovered_tools(current_user.id, c["provider"]),
         )
         for c in _local_db.get("mcp_connections", [])

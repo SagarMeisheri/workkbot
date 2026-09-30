@@ -27,16 +27,12 @@ class TokenDelegationService:
         client = supabase_admin.get_client()
         if client:
             try:
-                res = (
-                    client.table("mcp_connections")
-                    .select("*")
-                    .eq("user_id", user_id)
-                    .eq("provider", provider)
-                    .eq("status", "active")
-                    .execute()
-                )
-                if res.data:
-                    connection = res.data[0]
+                rpc_res = client.rpc("get_user_mcp_connections", {"p_user_id": user_id}).execute()
+                if rpc_res.data:
+                    for c in rpc_res.data:
+                        if c.get("provider") == provider:
+                            connection = c
+                            break
             except Exception:
                 pass
 

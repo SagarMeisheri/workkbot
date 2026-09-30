@@ -91,7 +91,7 @@ class DsrService:
                 conv_res = client.table("conversations").select("*").eq("user_id", user_id).execute()
                 conversations = conv_res.data or []
 
-                mcp_res = client.table("mcp_connections").select("id, provider, scopes, created_at").eq("user_id", user_id).execute()
+                mcp_res = client.rpc("get_user_mcp_connections", {"p_user_id": user_id}).execute()
                 mcp_connections = mcp_res.data or []
             except Exception as e:
                 logger.warning("Supabase export data read error: %s", e)

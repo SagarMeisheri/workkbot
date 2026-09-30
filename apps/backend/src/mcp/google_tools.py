@@ -37,21 +37,17 @@ async def _get_active_google_token() -> Optional[str]:
     if not user_id:
         return None
 
-    # 1. Check live Supabase table mcp_connections
+    # 1. Check live Supabase table mcp_connections via secure RPC
     vault_secret_id = None
     client = supabase_admin.get_client()
     if client:
         try:
-            res = (
-                client.table("mcp_connections")
-                .select("vault_secret_id, status")
-                .eq("user_id", user_id)
-                .eq("provider", "google_workspace")
-                .eq("status", "active")
-                .execute()
-            )
-            if res.data:
-                vault_secret_id = res.data[0].get("vault_secret_id")
+            rpc_res = client.rpc("get_user_mcp_connections", {"p_user_id": user_id}).execute()
+            if rpc_res.data:
+                for c in rpc_res.data:
+                    if c.get("provider") == "google_workspace":
+                        vault_secret_id = c.get("vault_secret_id")
+                        break
         except Exception:
             pass
 
