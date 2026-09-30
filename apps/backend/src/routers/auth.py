@@ -71,10 +71,16 @@ async def reviewer_login(payload: ReviewerLoginRequest):
     token = None
 
     # 1. Attempt live Supabase GoTrue authentication to acquire genuine cryptographic JWT
-    client = supabase_admin.get_authenticated_client(None)
-    if client:
+    if settings.SUPABASE_URL and (settings.SUPABASE_ANON_KEY or settings.SUPABASE_SERVICE_ROLE_KEY):
         try:
-            auth_res = client.auth.sign_in_with_password({
+            from supabase import create_client, ClientOptions
+            key_to_use = settings.SUPABASE_ANON_KEY or settings.SUPABASE_SERVICE_ROLE_KEY
+            auth_client = create_client(
+                settings.SUPABASE_URL,
+                key_to_use,
+                options=ClientOptions(persist_session=False, auto_refresh_token=False),
+            )
+            auth_res = auth_client.auth.sign_in_with_password({
                 "email": settings.REVIEWER_EMAIL,
                 "password": settings.REVIEWER_PASSWORD,
             })

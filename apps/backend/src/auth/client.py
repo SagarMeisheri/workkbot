@@ -45,30 +45,47 @@ class SupabaseAdminService:
         self._client = None
 
     def get_client(self):
-        """Lazy load supabase client."""
+        """Lazy load supabase admin client with service_role privileges."""
         if self._client is None and self.supabase_url and self.service_role_key:
             try:
-                from supabase import create_client
-                self._client = create_client(self.supabase_url, self.service_role_key)
+                from supabase import create_client, ClientOptions
+                self._client = create_client(
+                    self.supabase_url,
+                    self.service_role_key,
+                    options=ClientOptions(
+                        headers={"Authorization": f"Bearer {self.service_role_key}"},
+                        persist_session=False,
+                        auto_refresh_token=False,
+                    ),
+                )
+                self._client.postgrest.auth(self.service_role_key)
             except Exception as e:
                 logger.warning(f"Could not connect to live Supabase: {e}")
                 self._client = None
+        elif self._client is not None and self.service_role_key:
+            try:
+                self._client.postgrest.auth(self.service_role_key)
+            except Exception:
+                pass
         return self._client
 
     def get_authenticated_client(self, token: Optional[str] = None):
         """Returns client authenticated with user token for Supabase PostgREST RLS."""
-        client = self.get_client()
-        if not client:
+        if not self.supabase_url or not self.service_role_key:
             return None
         if token:
             try:
-                from supabase import create_client
-                user_client = create_client(self.supabase_url, self.service_role_key)
+                from supabase import create_client, ClientOptions
+                user_client = create_client(
+                    self.supabase_url,
+                    self.service_role_key,
+                    options=ClientOptions(persist_session=False, auto_refresh_token=False),
+                )
                 user_client.postgrest.auth(token)
                 return user_client
             except Exception as e:
                 logger.debug("Error creating user-authenticated client: %s", e)
-        return client
+        return self.get_client()
 
     def validate_email_domain(self, email: str) -> Tuple[bool, Optional[str]]:
         """
@@ -80,9 +97,10 @@ class SupabaseAdminService:
 
         domain = email.split("@")[1].lower()
 
-        client = self.get_authenticated_client(None)
+        client = self.get_client()
         if client:
             try:
+                client.postgrest.auth(self.service_role_key)
                 res = client.table("organizations").select("id, domains").execute()
                 if res.data:
                     for org in res.data:

@@ -229,3 +229,8 @@ BEGIN
     RETURN jsonb_build_object('status', 'success', 'user_id', target_user_id);
 END;
 $$;
+
+-- Restrict execution of destructive DSR cascade strictly to backend service_role
+REVOKE EXECUTE ON FUNCTION public.execute_dsr_erasure(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.execute_dsr_erasure(uuid, uuid) TO service_role;
+

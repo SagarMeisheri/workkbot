@@ -25,20 +25,32 @@ DROP POLICY IF EXISTS "Users can insert own mcp connections" ON public.mcp_conne
 CREATE POLICY "Users can insert own mcp connections"
     ON public.mcp_connections
     FOR INSERT
-    WITH CHECK (user_id = auth.uid());
+    WITH CHECK (
+        user_id = auth.uid()
+        AND org_id = (SELECT org_id FROM public.profiles WHERE id = auth.uid())
+    );
 
 DROP POLICY IF EXISTS "Users can update own mcp connections" ON public.mcp_connections;
 CREATE POLICY "Users can update own mcp connections"
     ON public.mcp_connections
     FOR UPDATE
-    USING (user_id = auth.uid())
-    WITH CHECK (user_id = auth.uid());
+    USING (
+        user_id = auth.uid()
+        AND org_id = (SELECT org_id FROM public.profiles WHERE id = auth.uid())
+    )
+    WITH CHECK (
+        user_id = auth.uid()
+        AND org_id = (SELECT org_id FROM public.profiles WHERE id = auth.uid())
+    );
 
 DROP POLICY IF EXISTS "Users can delete own mcp connections" ON public.mcp_connections;
 CREATE POLICY "Users can delete own mcp connections"
     ON public.mcp_connections
     FOR DELETE
-    USING (user_id = auth.uid());
+    USING (
+        user_id = auth.uid()
+        AND org_id = (SELECT org_id FROM public.profiles WHERE id = auth.uid())
+    );
 
 -- 2. Create public.tool_invocations audit log table
 CREATE TABLE IF NOT EXISTS public.tool_invocations (
@@ -92,6 +104,7 @@ CREATE OR REPLACE FUNCTION public.create_vault_secret(
 RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, vault, pg_temp
 AS $$
 DECLARE
     v_secret_id UUID;
@@ -115,6 +128,7 @@ CREATE OR REPLACE FUNCTION public.get_decrypted_vault_secret(
 RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, vault, pg_temp
 AS $$
 DECLARE
     v_secret TEXT;
@@ -136,6 +150,7 @@ CREATE OR REPLACE FUNCTION public.delete_vault_secret(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, vault, pg_temp
 AS $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'vault' AND table_name = 'secrets') THEN
