@@ -58,20 +58,31 @@ async def _get_active_google_token() -> Optional[str]:
                 vault_secret_id = conn.get("vault_secret_id")
                 break
 
-    if not vault_secret_id:
-        return None
+    # 3. Retrieve and decrypt from Supabase Vault
+    secret_data = None
+    if vault_secret_id:
+        secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
 
-    # Retrieve and decrypt from Supabase Vault
-    secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
+    # 4. Fallback: Lookup by canonical secret name if vault_secret_id was stale or missing
     if not secret_data:
+        secret_name = f"mcp_token_{user_id}_google_workspace"
+        secret_data = supabase_admin.retrieve_vault_secret_by_name(secret_name)
+
+    if not secret_data:
+        logger.warning("No vault secret found for user %s google_workspace", user_id)
         return None
 
     # Check auto-refresh if token near expiration
     from src.mcp.oauth_service import google_oauth_service
     try:
-        return await google_oauth_service.get_valid_access_token(vault_secret_id, user_id)
-    except Exception:
-        return secret_data.get("access_token")
+        if vault_secret_id:
+            refreshed = await google_oauth_service.get_valid_access_token(vault_secret_id, user_id)
+            if refreshed:
+                return refreshed
+    except Exception as e:
+        logger.debug("Token refresh check returned: %s", e)
+
+    return secret_data.get("access_token")
 
 
 def strip_schema_descriptions(schema: Any) -> Any:

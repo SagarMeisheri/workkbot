@@ -165,6 +165,25 @@ class SupabaseAdminService:
             return record["data"]
         return None
 
+    def retrieve_vault_secret_by_name(self, secret_name: str) -> Optional[Dict[str, Any]]:
+        """Retrieves and decrypts secret from Supabase Vault by its unique secret name."""
+        client = self.get_client()
+        if client:
+            try:
+                res = client.rpc(
+                    "get_decrypted_vault_secret_by_name",
+                    {"p_name": secret_name},
+                ).execute()
+                if res.data:
+                    return json.loads(res.data) if isinstance(res.data, str) else res.data
+            except Exception as e:
+                logger.warning(f"Error invoking get_decrypted_vault_secret_by_name RPC: {e}")
+
+        for rec in _local_vault.values():
+            if rec.get("name") == secret_name:
+                return rec.get("data")
+        return None
+
     def delete_vault_secret(self, vault_secret_id: str) -> bool:
         """Deletes secret from Supabase Vault."""
         client = self.get_client()

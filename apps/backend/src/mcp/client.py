@@ -95,8 +95,10 @@ class GoogleWorkspaceMCPClient:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 try:
                     resp = await client.post(url, json=payload, headers=delegated_headers)
+                    if resp.status_code != 200:
+                        raise httpx.HTTPStatusError("Gateway error", request=resp.request, response=resp)
                 except Exception as net_err:
-                    # Loopback offline: route directly to Remote MCP server endpoint
+                    # Loopback offline or returned error: route directly to Remote MCP server endpoint
                     remote_url = REMOTE_GOOGLE_MCP_ENDPOINTS.get(service)
                     if remote_url:
                         token = delegated_headers.get("X-Upstream-Authorization") or delegated_headers.get("Authorization") or ""
@@ -111,6 +113,8 @@ class GoogleWorkspaceMCPClient:
                     import inspect
                     res_val = resp.json()
                     result = await res_val if inspect.iscoroutine(res_val) else res_val
+                    if isinstance(result, dict) and "result" in result:
+                        result = result["result"]
                     status = "success"
                 else:
                     result = {"error": resp.text, "status_code": resp.status_code}

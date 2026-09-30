@@ -55,6 +55,6 @@ def test_tool_rehydration_adk_callback_signature():
 
     result = tool_rehydration_callback(mock_tool, args, mock_context)
 
-    # Args dict should be mutated in-place and returned
+    # Args dict should be mutated in-place with real PII, and callback returns None to allow tool execution
     assert args["to"] == "ceo@acme.in"
-    assert result["to"] == "ceo@acme.in"
+    assert result is None

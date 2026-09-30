@@ -64,5 +64,7 @@ def tool_rehydration_callback(
             logger.warning("Tool call budget exceeded in callback guardrail for %s", tool_name)
             return {"error": "Maximum execution budget for tool calls (2) exceeded for this turn."}
 
-    # Return rehydrated arguments dictionary
-    return rehydrated
+    # CRITICAL: In Google ADK, before_tool_callback must return None to allow the tool execution
+    # to proceed with the in-place mutated args. Returning a non-None value skips the tool call
+    # and uses the return value as the tool's result!
+    return None
