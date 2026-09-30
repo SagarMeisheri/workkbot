@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Plus, MessageSquare, ExternalLink, Shield } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Plus, MessageSquare, ExternalLink, Shield, ArrowDown } from "lucide-react";
 import { SidebarAuthFooter } from "@/components/sidebar/sidebar-auth-footer";
 import { ThreadHeader } from "@/components/chat/thread-header";
 import { ChatHeroGreeting } from "@/components/chat/chat-hero-greeting";
@@ -27,6 +27,20 @@ export default function WorkspacePage() {
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [threads, setThreads] = useState<Array<{ id: string; title: string }>>([]);
   const [activeThread, setActiveThread] = useState<string>("New chat");
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    setShowScrollBottom(distanceFromBottom > 100);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const {
     messages,
@@ -42,6 +56,13 @@ export default function WorkspacePage() {
     conversationId,
     onConsentRequired: () => setIsConsentOpen(true),
   });
+
+  // Auto-scroll to bottom of conversation during streaming or when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isStreaming]);
 
   const fetchConversations = async (token: string) => {
     try {
@@ -323,10 +344,10 @@ export default function WorkspacePage() {
         {/* Viewport: Main Chat + Optional Canvas Split */}
         <div className="flex-1 flex overflow-hidden">
           {/* Chat Stream Viewport */}
-          <div className={`flex-1 flex flex-col overflow-y-auto px-4 py-6 transition-all ${isCanvasOpen ? "w-1/2" : "w-full"}`}>
+          <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all ${isCanvasOpen ? "w-1/2" : "w-full"}`}>
             {messages.length === 0 ? (
               /* Empty Cold Landing State */
-              <div className="flex-1 flex flex-col items-center justify-center my-auto">
+              <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-4 py-6 my-auto">
                 <ChatHeroGreeting user={user} />
                 <FloatingComposer
                   onSendMessage={handleSendMessage}
@@ -338,68 +359,91 @@ export default function WorkspacePage() {
                 />
               </div>
             ) : (
-              /* Active Message Stream */
-              <div className="w-full max-w-2xl mx-auto flex flex-col gap-6 pb-24">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${
-                      msg.role === "user" ? "items-end" : "items-start"
-                    }`}
-                  >
-                    {/* Gemini Reasoning / Thoughts */}
-                    {msg.role === "assistant" && msg.thought && (
-                      <Reasoning text={msg.thought} />
-                    )}
+              /* Active Conversation Mode */
+              <div className="flex-1 flex flex-col min-h-0 relative">
+                {/* Scrollable Message Stream: Text stays strictly above the composer dock */}
+                <div
+                  ref={scrollContainerRef}
+                  onScroll={handleScroll}
+                  className="flex-1 overflow-y-auto px-4 py-6 scroll-smooth"
+                >
+                  <div className="w-full max-w-3xl mx-auto flex flex-col gap-6 pb-6">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${
+                          msg.role === "user" ? "items-end" : "items-start"
+                        }`}
+                      >
+                        {/* Gemini Reasoning / Thoughts */}
+                        {msg.role === "assistant" && msg.thought && (
+                          <Reasoning text={msg.thought} />
+                        )}
 
-                    <div
-                      className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] ${
-                        msg.role === "user"
-                          ? "bg-primary text-primary-foreground rounded-br-xs whitespace-pre-wrap"
-                          : "bg-muted/70 text-foreground border border-border/60 rounded-bl-xs shadow-2xs"
-                      }`}
-                    >
-                      {msg.role === "assistant" ? (
-                        msg.content ? (
-                          <MarkdownContent content={msg.content} />
-                        ) : isStreaming ? (
-                          <span className="text-muted-foreground animate-pulse">Thinking...</span>
-                        ) : null
-                      ) : (
-                        msg.content
-                      )}
-                    </div>
+                        <div
+                          className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] ${
+                            msg.role === "user"
+                              ? "bg-primary text-primary-foreground rounded-br-xs whitespace-pre-wrap"
+                              : "bg-muted/70 text-foreground border border-border/60 rounded-bl-xs shadow-2xs"
+                          }`}
+                        >
+                          {msg.role === "assistant" ? (
+                            msg.content ? (
+                              <MarkdownContent content={msg.content} />
+                            ) : isStreaming ? (
+                              <span className="text-muted-foreground animate-pulse">Thinking...</span>
+                            ) : null
+                          ) : (
+                            msg.content
+                          )}
+                        </div>
 
-                    {/* Action Bar with Apple 1.2 Moderation Flag & Regenerate */}
-                    {msg.content && (
-                      <ActionBar
-                        messageId={msg.id}
-                        content={msg.content}
-                        role={msg.role}
-                        onFlag={
-                          msg.role === "assistant"
-                            ? () => handleOpenFlagModal(msg.id, msg.content)
-                            : undefined
-                        }
-                        onRegenerate={
-                          msg.role === "assistant"
-                            ? () => sendMessage("Regenerate response with additional details", "chat", "gemini-3.8-flash", msg.checkpointId)
-                            : undefined
-                        }
-                      />
-                    )}
+                        {/* Action Bar with Apple 1.2 Moderation Flag & Regenerate */}
+                        {msg.content && (
+                          <ActionBar
+                            messageId={msg.id}
+                            content={msg.content}
+                            role={msg.role}
+                            onFlag={
+                              msg.role === "assistant"
+                                ? () => handleOpenFlagModal(msg.id, msg.content)
+                                : undefined
+                            }
+                            onRegenerate={
+                              msg.role === "assistant"
+                                ? () => sendMessage("Regenerate response with additional details", "chat", "gemini-3.8-flash", msg.checkpointId)
+                                : undefined
+                            }
+                          />
+                        )}
+                      </div>
+                    ))}
+                    {/* Auto-scroll target anchor */}
+                    <div ref={messagesEndRef} />
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
 
-            {/* Anchored Bottom Composer during conversation */}
-            {messages.length > 0 && (
-              <div className="sticky bottom-4 w-full pt-2">
-                <FloatingComposer
-                  onSendMessage={handleSendMessage}
-                  onOpenConnectors={() => setIsConnectorsOpen(true)}
-                />
+                {/* Docked Bottom Composer: Compact single-row pill when conversation is active */}
+                <div className="relative w-full shrink-0 px-4 pb-4 pt-1 bg-gradient-to-t from-background via-background/95 to-transparent">
+                  {/* Floating Scroll-to-Bottom Arrow Button (like Claude) */}
+                  {showScrollBottom && (
+                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-20 animate-in fade-in zoom-in-90 duration-150">
+                      <button
+                        onClick={scrollToBottom}
+                        className="h-8 w-8 rounded-full border border-border bg-background shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground transition-all hover:scale-105"
+                        title="Scroll to latest response"
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
+                  <FloatingComposer
+                    compact={true}
+                    onSendMessage={handleSendMessage}
+                    onOpenConnectors={() => setIsConnectorsOpen(true)}
+                  />
+                </div>
               </div>
             )}
           </div>

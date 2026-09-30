@@ -8,12 +8,14 @@ interface FloatingComposerProps {
   onSendMessage: (text: string, mode: "chat" | "cowork", model: string) => void;
   onOpenConnectors: () => void;
   disabled?: boolean;
+  compact?: boolean;
 }
 
 export function FloatingComposer({
   onSendMessage,
   onOpenConnectors,
   disabled,
+  compact = false,
 }: FloatingComposerProps) {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<"chat" | "cowork">("chat");
@@ -44,12 +46,12 @@ export function FloatingComposer({
     setText(e.target.value);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, compact ? 120 : 180)}px`;
     }
   };
 
   return (
-    <div className="relative w-full max-w-2xl mx-auto">
+    <div className={`relative w-full ${compact ? "max-w-3xl" : "max-w-2xl"} mx-auto`}>
       {/* Popover anchored to Plus (+) */}
       <ComposerPlusPopover
         isOpen={showPlusMenu}
@@ -61,7 +63,11 @@ export function FloatingComposer({
 
       {/* Model Selector Dropdown */}
       {showModelMenu && (
-        <div className="absolute bottom-14 right-20 w-52 p-1.5 rounded-xl border border-border bg-popover shadow-xl z-50 text-xs text-foreground animate-in fade-in duration-150">
+        <div
+          className={`absolute ${
+            compact ? "bottom-12 right-2" : "bottom-14 right-20"
+          } w-52 p-1.5 rounded-xl border border-border bg-popover shadow-xl z-50 text-xs text-foreground animate-in fade-in duration-150`}
+        >
           <button
             onClick={() => {
               setModel("gemini-3.8-flash");
@@ -95,106 +101,176 @@ export function FloatingComposer({
         </div>
       )}
 
-      {/* Capsule Container */}
-      <div className="w-full bg-card border border-border rounded-2xl shadow-md p-3.5 flex flex-col gap-2.5 transition-all focus-within:border-border/80 focus-within:shadow-lg">
-        {/* Text Input */}
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder="How can I help you today?"
-          rows={1}
-          className="w-full min-h-[44px] max-h-44 resize-none bg-transparent outline-none text-sm sm:text-base text-foreground placeholder:text-muted-foreground/80 leading-relaxed"
-        />
-
-        {/* Bottom Action Bar */}
-        <div className="flex items-center justify-between pt-1">
-          {/* Left Cluster */}
-          <div className="flex items-center gap-2">
+      {compact ? (
+        /* Compact Capsule Bar (Active Chat State - Claude Style) */
+        <div className="flex flex-col gap-1.5">
+          <div className="w-full bg-card border border-border/80 rounded-2xl shadow-sm px-3 py-2 flex items-center gap-2 transition-all focus-within:border-border focus-within:shadow-md">
             {/* Plus (+) Action Button */}
             <button
               onClick={() => setShowPlusMenu(!showPlusMenu)}
-              className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               title="Add tools, files, or connectors"
             >
               <Plus className="h-4 w-4" />
             </button>
 
-            {/* Segmented Mode Pill [ Chat | Cowork ] */}
-            <div className="rounded-full bg-muted/60 p-0.5 flex items-center text-xs font-medium border border-border/40">
+            {/* Compact auto-expanding single-line text input */}
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              disabled={disabled}
+              placeholder="Write a message..."
+              rows={1}
+              className="flex-1 min-h-[26px] max-h-32 resize-none bg-transparent outline-none text-sm text-foreground placeholder:text-muted-foreground/70 leading-normal py-0.5"
+            />
+
+            {/* Right Action Icons */}
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Microphone Button */}
               <button
-                onClick={() => setMode("chat")}
-                className={`rounded-full px-2.5 py-1 transition-all ${
-                  mode === "chat"
-                    ? "bg-background text-foreground shadow-2xs font-semibold"
-                    : "text-muted-foreground hover:text-foreground"
+                onClick={() => setIsRecording(!isRecording)}
+                className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${
+                  isRecording
+                    ? "bg-red-500 text-white animate-pulse"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
                 }`}
+                title="Speech-to-text dictation"
               >
-                Chat
+                <Mic className="h-4 w-4" />
               </button>
-              <button
-                onClick={() => setMode("cowork")}
-                className={`rounded-full px-2.5 py-1 transition-all ${
-                  mode === "cowork"
-                    ? "bg-background text-foreground shadow-2xs font-semibold"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+
+              {/* Voice Orb / Waveform Indicator */}
+              <div
+                className="h-8 px-1.5 rounded-full hover:bg-accent flex items-center gap-0.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
+                title="Voice mode"
               >
-                Cowork
+                <span className="w-0.5 h-3 bg-muted-foreground/60 rounded-full" />
+                <span className="w-0.5 h-4 bg-muted-foreground/80 rounded-full" />
+                <span className="w-0.5 h-2 bg-muted-foreground/60 rounded-full" />
+              </div>
+
+              {/* Send Button */}
+              <button
+                onClick={handleSend}
+                disabled={!text.trim() || disabled}
+                className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-all disabled:opacity-20 hover:opacity-90"
+                title="Send message (Enter)"
+              >
+                <ArrowUp className="h-4 w-4" />
               </button>
             </div>
           </div>
 
-          {/* Right Cluster */}
-          <div className="flex items-center gap-1.5">
-            {/* ModelSelector Pill */}
+          {/* Subdued Footer Note & Model Tag */}
+          <div className="flex items-center justify-between px-2 text-[11px] text-muted-foreground/75">
+            <span>Workkbot can make mistakes. Please double-check responses.</span>
             <button
               onClick={() => setShowModelMenu(!showModelMenu)}
-              className="h-8 px-2.5 rounded-full border border-border/60 hover:bg-accent text-xs font-medium flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1 hover:text-foreground transition-colors text-[11px]"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-500" />
-              <span>{model === "gemini-3.8-flash" ? "3.8 Flash" : "3.7 Flash"}</span>
-              <ChevronDown className="w-3 h-3 text-muted-foreground" />
-            </button>
-
-            {/* Microphone Button */}
-            <button
-              onClick={() => setIsRecording(!isRecording)}
-              className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${
-                isRecording
-                  ? "bg-red-500 text-white animate-pulse"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              }`}
-              title="Speech-to-text dictation"
-            >
-              <Mic className="h-4 w-4" />
-            </button>
-
-            {/* Voice Orb / Waveform Indicator */}
-            <div
-              className="h-8 px-2 rounded-full hover:bg-accent flex items-center gap-0.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
-              title="Voice mode"
-            >
-              <span className="w-0.5 h-3 bg-muted-foreground/60 rounded-full" />
-              <span className="w-0.5 h-4 bg-muted-foreground/80 rounded-full" />
-              <span className="w-0.5 h-2 bg-muted-foreground/60 rounded-full" />
-              <ChevronDown className="w-2.5 h-2.5 ml-0.5" />
-            </div>
-
-            {/* Send Button */}
-            <button
-              onClick={handleSend}
-              disabled={!text.trim() || disabled}
-              className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-all disabled:opacity-30 hover:opacity-90"
-              title="Send message (Enter)"
-            >
-              <ArrowUp className="h-4 w-4" />
+              <span>{model === "gemini-3.8-flash" ? "Gemini 3.8 Flash" : "Gemini 3.7 Flash"}</span>
+              <ChevronDown className="w-2.5 h-2.5" />
             </button>
           </div>
         </div>
-      </div>
+      ) : (
+        /* Full-sized Open Capsule (Cold Landing State) */
+        <div className="w-full bg-card border border-border rounded-2xl shadow-md p-3.5 flex flex-col gap-2.5 transition-all focus-within:border-border/80 focus-within:shadow-lg">
+          {/* Text Input */}
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder="How can I help you today?"
+            rows={1}
+            className="w-full min-h-[44px] max-h-44 resize-none bg-transparent outline-none text-sm sm:text-base text-foreground placeholder:text-muted-foreground/80 leading-relaxed"
+          />
+
+          {/* Bottom Action Bar */}
+          <div className="flex items-center justify-between pt-1">
+            {/* Left Cluster */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowPlusMenu(!showPlusMenu)}
+                className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                title="Add tools, files, or connectors"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+
+              <div className="rounded-full bg-muted/60 p-0.5 flex items-center text-xs font-medium border border-border/40">
+                <button
+                  onClick={() => setMode("chat")}
+                  className={`rounded-full px-2.5 py-1 transition-all ${
+                    mode === "chat"
+                      ? "bg-background text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Chat
+                </button>
+                <button
+                  onClick={() => setMode("cowork")}
+                  className={`rounded-full px-2.5 py-1 transition-all ${
+                    mode === "cowork"
+                      ? "bg-background text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Cowork
+                </button>
+              </div>
+            </div>
+
+            {/* Right Cluster */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setShowModelMenu(!showModelMenu)}
+                className="h-8 px-2.5 rounded-full border border-border/60 hover:bg-accent text-xs font-medium flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-500" />
+                <span>{model === "gemini-3.8-flash" ? "3.8 Flash" : "3.7 Flash"}</span>
+                <ChevronDown className="w-3 h-3 text-muted-foreground" />
+              </button>
+
+              <button
+                onClick={() => setIsRecording(!isRecording)}
+                className={`h-8 w-8 rounded-full flex items-center justify-center transition-colors ${
+                  isRecording
+                    ? "bg-red-500 text-white animate-pulse"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                title="Speech-to-text dictation"
+              >
+                <Mic className="h-4 w-4" />
+              </button>
+
+              <div
+                className="h-8 px-2 rounded-full hover:bg-accent flex items-center gap-0.5 cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
+                title="Voice mode"
+              >
+                <span className="w-0.5 h-3 bg-muted-foreground/60 rounded-full" />
+                <span className="w-0.5 h-4 bg-muted-foreground/80 rounded-full" />
+                <span className="w-0.5 h-2 bg-muted-foreground/60 rounded-full" />
+                <ChevronDown className="w-2.5 h-2.5 ml-0.5" />
+              </div>
+
+              <button
+                onClick={handleSend}
+                disabled={!text.trim() || disabled}
+                className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-all disabled:opacity-30 hover:opacity-90"
+                title="Send message (Enter)"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
