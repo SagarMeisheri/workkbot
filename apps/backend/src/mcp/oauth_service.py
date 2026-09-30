@@ -106,37 +106,47 @@ class GoogleOAuthService:
             logger.warning("Error revoking Google token: %s", e)
             return False
 
+    def __init__(self):
+        import asyncio
+        self._refresh_locks: Dict[str, asyncio.Lock] = {}
+
     async def get_valid_access_token(self, vault_secret_id: str, user_id: str) -> str:
-        """Retrieves and automatically refreshes token from Supabase Vault if close to expiry."""
-        secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
-        if not secret_data:
-            raise ValueError(f"Vault secret not found for id {vault_secret_id}")
+        """Retrieves and automatically refreshes token from Supabase Vault if close to expiry, safely serialized."""
+        import asyncio
+        if user_id not in self._refresh_locks:
+            self._refresh_locks[user_id] = asyncio.Lock()
 
-        access_token = secret_data.get("access_token")
-        obtained_at = secret_data.get("obtained_at", 0)
-        expires_in = secret_data.get("expires_in", 3600)
-        refresh_token = secret_data.get("refresh_token")
+        async with self._refresh_locks[user_id]:
+            secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
+            if not secret_data:
+                raise ValueError(f"Vault secret not found for id {vault_secret_id}")
 
-        # If expired or expiring within 60s, refresh if refresh_token available
-        if time.time() - obtained_at > (expires_in - 60) and refresh_token:
-            logger.info("Access token near expiry; refreshing from Google")
-            try:
-                new_token_data = await self.refresh_access_token(refresh_token)
-                secret_data["access_token"] = new_token_data["access_token"]
-                secret_data["expires_in"] = new_token_data.get("expires_in", 3600)
-                secret_data["obtained_at"] = int(time.time())
-                
-                # Re-seal in Vault
-                supabase_admin.store_vault_secret(
-                    user_id=user_id,
-                    provider="google_workspace",
-                    secret_data=secret_data,
-                )
-                access_token = new_token_data["access_token"]
-            except Exception as e:
-                logger.warning("Auto-refresh failed, using existing access token: %s", e)
+            access_token = secret_data.get("access_token")
+            obtained_at = secret_data.get("obtained_at", 0)
+            expires_in = secret_data.get("expires_in", 3600)
+            refresh_token = secret_data.get("refresh_token")
 
-        return access_token
+            # If expired or expiring within 60s, refresh if refresh_token available (VULN-10 Defense)
+            if time.time() - obtained_at > (expires_in - 60) and refresh_token:
+                logger.info("Access token near expiry; refreshing from Google for user %s", user_id)
+                try:
+                    new_token_data = await self.refresh_access_token(refresh_token)
+                    secret_data["access_token"] = new_token_data["access_token"]
+                    secret_data["expires_in"] = new_token_data.get("expires_in", 3600)
+                    secret_data["obtained_at"] = int(time.time())
+                    
+                    # Re-seal in Vault
+                    supabase_admin.store_vault_secret(
+                        user_id=user_id,
+                        provider="google_workspace",
+                        secret_data=secret_data,
+                    )
+                    access_token = new_token_data["access_token"]
+                except Exception as e:
+                    logger.warning("Auto-refresh failed, using existing access token: %s", e)
+
+            return access_token
 
 
 google_oauth_service = GoogleOAuthService()
+

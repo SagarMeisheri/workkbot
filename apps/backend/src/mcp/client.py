@@ -93,20 +93,7 @@ class GoogleWorkspaceMCPClient:
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                try:
-                    resp = await client.post(url, json=payload, headers=delegated_headers)
-                    if resp.status_code != 200:
-                        raise httpx.HTTPStatusError("Gateway error", request=resp.request, response=resp)
-                except Exception as net_err:
-                    # Loopback offline or returned error: route directly to Remote MCP server endpoint
-                    remote_url = REMOTE_GOOGLE_MCP_ENDPOINTS.get(service)
-                    if remote_url:
-                        token = delegated_headers.get("X-Upstream-Authorization") or delegated_headers.get("Authorization") or ""
-                        remote_headers = {"Authorization": token if token.startswith("Bearer ") else f"Bearer {token}", "Content-Type": "application/json"}
-                        resp = await client.post(remote_url, json=payload, headers=remote_headers)
-                    else:
-                        raise net_err
-
+                resp = await client.post(url, json=payload, headers=delegated_headers)
                 duration_ms = int((time.time() - start_time) * 1000)
                 
                 if resp.status_code == 200:
@@ -117,11 +104,16 @@ class GoogleWorkspaceMCPClient:
                         result = result["result"]
                     status = "success"
                 else:
-                    result = {"error": resp.text, "status_code": resp.status_code}
+                    # Fail-closed: Never bypass Agentgateway on error or policy rejection (VULN-02 Defense)
+                    logger.warning("Agentgateway policy rejection or error (%d) for %s: %s", resp.status_code, tool_name, resp.text)
+                    result = {
+                        "error": f"Agentgateway security policy or upstream error: {resp.text}",
+                        "status_code": resp.status_code,
+                    }
                     status = "failed"
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            result = {"error": str(e)}
+            result = {"error": f"Gateway connection failed: {str(e)}"}
             status = "failed"
             logger.warning("MCP call failed for %s: %s", tool_name, e)
 
@@ -146,7 +138,7 @@ class GoogleWorkspaceMCPClient:
         delegated_headers: Dict[str, str],
     ) -> List[Dict[str, Any]]:
         """
-        Discovers available tools by querying the MCP server with JSON-RPC 'tools/list'.
+        Discovers available tools by querying the MCP server through Agentgateway with JSON-RPC 'tools/list'.
         """
         url = f"{self.gateway_url}/mcp/google/{service}"
         payload = {
@@ -157,26 +149,13 @@ class GoogleWorkspaceMCPClient:
         }
         try:
             async with httpx.AsyncClient(timeout=4.0) as client:
-                try:
-                    resp = await client.post(url, json=payload, headers=delegated_headers)
-                except Exception:
-                    # Loopback offline: try remote endpoint
-                    remote_url = REMOTE_GOOGLE_MCP_ENDPOINTS.get(service)
-                    if not remote_url:
-                        return []
-                    token = delegated_headers.get("X-Upstream-Authorization") or delegated_headers.get("Authorization") or ""
-                    resp = await client.post(
-                        remote_url,
-                        json=payload,
-                        headers={"Authorization": token if token.startswith("Bearer ") else f"Bearer {token}", "Content-Type": "application/json"}
-                    )
-
-                try:
+                resp = await client.post(url, json=payload, headers=delegated_headers)
+                if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, dict) and "result" in data and "tools" in data["result"]:
                         return data["result"]["tools"]
-                except Exception:
-                    pass
+                else:
+                    logger.warning("Agentgateway tools/list returned status %d for %s: %s", resp.status_code, service, resp.text)
         except Exception as e:
             logger.debug("MCP tools/list failed for %s: %s", service, e)
         return []

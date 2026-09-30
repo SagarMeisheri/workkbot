@@ -32,8 +32,17 @@ class ParameterSanitizer:
         if SHELL_METACHRACTERS_PATTERN.search(value):
             raise ParameterSanitizerError(f"Shell metacharacters detected in argument '{field_name}'")
 
-        # Strip unescaped carriage returns and line feeds in single-line fields
-        cleaned = CRLF_PATTERN.sub(" ", value) if "\r" in value or "\n" in value and not field_name.endswith(("_body", "_content", "_text")) else value
+        MULTILINE_FIELDS = (
+            "_body", "_content", "_text", "_description", "_summary", "_notes", "_message",
+            "body", "content", "text", "description", "summary", "notes", "message",
+        )
+        is_multiline_field = field_name.lower().endswith(MULTILINE_FIELDS)
+
+        # Strip unescaped carriage returns and line feeds in single-line fields (VULN-08 Defense)
+        if ("\r" in value or "\n" in value) and not is_multiline_field:
+            cleaned = CRLF_PATTERN.sub(" ", value)
+        else:
+            cleaned = value
         return cleaned
 
     def sanitize_arguments(self, args: Dict[str, Any]) -> Dict[str, Any]:

@@ -78,7 +78,10 @@ DROP POLICY IF EXISTS "Users can insert own tool invocations" ON public.tool_inv
 CREATE POLICY "Users can insert own tool invocations"
     ON public.tool_invocations
     FOR INSERT
-    WITH CHECK (user_id = auth.uid());
+    WITH CHECK (
+        user_id = auth.uid()
+        AND org_id = (SELECT org_id FROM public.profiles WHERE id = auth.uid())
+    );
 
 -- 3. Supabase Vault Helper Functions (RPC)
 CREATE OR REPLACE FUNCTION public.create_vault_secret(
@@ -143,3 +146,15 @@ BEGIN
     END IF;
 END;
 $$;
+
+-- 4. Restrict Execution Privileges on Vault Functions (VULN-01 Defense)
+-- Revoke execution from PUBLIC, anon, and authenticated to prevent unauthorized secret exfiltration.
+REVOKE EXECUTE ON FUNCTION public.create_vault_secret(TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.get_decrypted_vault_secret(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.delete_vault_secret(UUID) FROM PUBLIC, anon, authenticated;
+
+-- Grant execution strictly to service_role for backend operations
+GRANT EXECUTE ON FUNCTION public.create_vault_secret(TEXT, TEXT, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_decrypted_vault_secret(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION public.delete_vault_secret(UUID) TO service_role;
+

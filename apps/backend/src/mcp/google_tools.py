@@ -115,9 +115,10 @@ try:
             service: str,
             provider: str = "google_workspace",
         ):
-            # Omit tool description from the agent prompt to avoid prompt bloat
+            # Omit tool description from the agent prompt to avoid prompt bloat, but preserve for classifier (VULN-09 Defense)
             super().__init__(name=name, description="")
             self.original_name = original_name
+            self.tool_description = description
             self.service = service
             self.provider = provider
             self._schema = strip_schema_descriptions(parameters_json_schema) or {"type": "object", "properties": {}}
@@ -149,14 +150,27 @@ try:
             # 1. Parameter sanitization (CVE-2026-29791)
             sanitized_args = parameter_sanitizer.sanitize_arguments(args or {})
 
-            # 2. Classification & HITL approval check
-            safety_info = tool_classifier.classify(self.name)
+            # 2. Classification & HITL approval check (VULN-09: pass tool_description for semantic classification)
+            safety_info = tool_classifier.classify(self.name, tool_description=self.tool_description)
             state_delta = ctx.get("state_delta") or {}
-            is_confirmed = (
-                state_delta.get("confirmed_tool") == self.name
-                or state_delta.get("confirmed_tool") == self.original_name
-                or state_delta.get("approval_granted") is True
-            )
+
+            # Cryptographically bind confirmation to tool and arguments hash (VULN-04 Defense)
+            import hashlib
+            args_str = json.dumps(sanitized_args, sort_keys=True)
+            args_hash = hashlib.sha256(f"{self.original_name}:{args_str}".encode()).hexdigest()[:16]
+
+            confirmed_tool = state_delta.get("confirmed_tool") or state_delta.get("approved_tool")
+            confirmed_hash = state_delta.get("confirmation_hash")
+
+            is_confirmed = False
+            if confirmed_tool in (self.name, self.original_name):
+                # If confirmation_hash was supplied by client, verify parameter integrity
+                if confirmed_hash:
+                    is_confirmed = (confirmed_hash == args_hash)
+                else:
+                    is_confirmed = True
+            elif state_delta.get("approval_granted") is True and confirmed_hash == args_hash:
+                is_confirmed = True
 
             if safety_info.is_critical and not is_confirmed:
                 challenge = format_confirmation_request(self.original_name, sanitized_args)

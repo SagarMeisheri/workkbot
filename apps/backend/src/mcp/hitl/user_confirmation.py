@@ -8,6 +8,9 @@ from typing import Any, Dict, Optional
 import uuid
 
 
+import hashlib
+import json
+
 @dataclass
 class ToolConfirmationRequest:
     confirmation_id: str
@@ -15,12 +18,14 @@ class ToolConfirmationRequest:
     service_name: str
     action_title: str
     parameters: Dict[str, Any]
+    confirmation_hash: str = ""
     security_notice: str = "Action requires employee authorization before execution."
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "type": "tool_confirmation_request",
             "confirmation_id": self.confirmation_id,
+            "confirmation_hash": self.confirmation_hash,
             "tool_name": self.tool_name,
             "service_name": self.service_name,
             "action_title": self.action_title,
@@ -34,9 +39,13 @@ def format_confirmation_request(
     parameters: Dict[str, Any],
     confirmation_id: Optional[str] = None,
 ) -> ToolConfirmationRequest:
-    """Creates a structured confirmation payload for assistant-ui ApprovalCard."""
+    """Creates a structured confirmation payload for assistant-ui ApprovalCard with parameter binding hash."""
     cid = confirmation_id or f"hitl_{uuid.uuid4().hex[:12]}"
     
+    # Compute deterministic parameter hash to bind confirmed parameters cryptographically (VULN-04 Defense)
+    param_str = json.dumps(parameters, sort_keys=True)
+    chash = hashlib.sha256(f"{tool_name}:{param_str}".encode()).hexdigest()[:16]
+
     # Human-friendly service identification
     service = "Google Workspace"
     if "gmail" in tool_name:
@@ -62,4 +71,5 @@ def format_confirmation_request(
         service_name=service,
         action_title=title,
         parameters=parameters,
+        confirmation_hash=chash,
     )

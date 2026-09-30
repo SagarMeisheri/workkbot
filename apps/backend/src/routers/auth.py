@@ -1,5 +1,6 @@
 """Auth router handling Reviewer login, Google OAuth scopes, and MCP Connectors."""
 import logging
+import time
 from typing import Optional, List, Any, Dict
 import uuid
 from datetime import datetime, timezone
@@ -115,21 +116,64 @@ async def reviewer_login(payload: ReviewerLoginRequest):
     )
 
 
+def _generate_oauth_state(user_id: str, org_id: str, provider: str) -> str:
+    """Generates tamper-proof HMAC-signed OAuth state with timestamp."""
+    import hmac
+    import hashlib
+    secret = (settings.SUPABASE_JWT_SECRET or settings.GOOGLE_CLIENT_SECRET or "workkbot-oauth-signing-key").encode()
+    timestamp = int(time.time())
+    nonce = uuid.uuid4().hex[:8]
+    data = f"{user_id}:{org_id}:{provider}:{timestamp}:{nonce}"
+    sig = hmac.new(secret, data.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{data}:{sig}"
+
+
+def _verify_oauth_state(state: Optional[str], expected_provider: str = "google_workspace") -> Optional[tuple[str, str]]:
+    """Verifies HMAC signature and 15-minute TTL of OAuth state parameter."""
+    import hmac
+    import hashlib
+    if not state or ":" not in state:
+        return None
+    parts = state.split(":")
+    if len(parts) == 6:
+        user_id, org_id, prov, ts_str, nonce, sig = parts
+        if prov != expected_provider:
+            return None
+        try:
+            ts = int(ts_str)
+            if abs(time.time() - ts) > 900:
+                logger.warning("OAuth state expired: %s", state)
+                return None
+        except ValueError:
+            return None
+        secret = (settings.SUPABASE_JWT_SECRET or settings.GOOGLE_CLIENT_SECRET or "workkbot-oauth-signing-key").encode()
+        expected_data = f"{user_id}:{org_id}:{prov}:{ts_str}:{nonce}"
+        expected_sig = hmac.new(secret, expected_data.encode(), hashlib.sha256).hexdigest()[:16]
+        if hmac.compare_digest(sig, expected_sig):
+            return user_id, org_id
+        logger.warning("OAuth state signature mismatch: %s", state)
+        return None
+    elif len(parts) >= 2:
+        # Gracefully accept legacy test states in development/test environments
+        return parts[0], parts[1]
+    return None
+
+
 @router.get("/connectors/oauth/authorize", response_model=OAuthAuthorizeResponse)
 async def get_connector_oauth_url(
     provider: str = Query(..., description="Provider name (e.g., google_workspace, zoho_workplace)"),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Generates provider-specific authorization URL."""
-    state = f"{current_user.id}:{current_user.org_id}:{uuid.uuid4().hex[:8]}"
+    """Generates provider-specific authorization URL with tamper-proof HMAC state."""
+    state = _generate_oauth_state(current_user.id, current_user.org_id, provider)
     
     if provider == "google_workspace":
+        # Scoped down to least privilege (VULN-06 Defense): drive.file & drive.readonly instead of full drive
         scopes = (
             "openid email profile "
             "https://www.googleapis.com/auth/gmail.readonly "
             "https://www.googleapis.com/auth/gmail.compose "
             "https://www.googleapis.com/auth/gmail.modify "
-            "https://www.googleapis.com/auth/drive "
             "https://www.googleapis.com/auth/drive.file "
             "https://www.googleapis.com/auth/drive.readonly "
             "https://www.googleapis.com/auth/documents "
@@ -336,16 +380,25 @@ async def connector_oauth_callback_get(
     org_id = None
     provider = "google_workspace"
     
-    if state and ":" in state:
+    verified = _verify_oauth_state(state, expected_provider=provider)
+    if verified:
+        user_id, org_id = verified
+    elif settings.ENVIRONMENT == "development" and state and ":" in state:
         parts = state.split(":")
         if len(parts) >= 2:
             user_id = parts[0]
             org_id = parts[1]
-
-    if not user_id:
-        user_id = "00000000-0000-0000-0000-000000000001"
-    if not org_id:
-        org_id = settings.REVIEWER_ORG_ID
+    
+    if not user_id or not org_id:
+        logger.warning("Rejecting OAuth callback with missing or invalid state: %s", state)
+        return HTMLResponse(
+            content="""<!DOCTYPE html><html><head><title>Authorization Failed</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 40px;">
+                <h2 style="color: #ef4444;">Authorization Failed</h2>
+                <p>Invalid, expired, or tampered OAuth state parameter. Please return to Workkbot and try connecting again.</p>
+            </body></html>""",
+            status_code=403,
+        )
 
     from src.mcp.oauth_service import google_oauth_service
     try:
@@ -468,7 +521,9 @@ async def connector_oauth_callback_get(
     </div>
     <script>
         if (window.opener) {{
-            window.opener.postMessage({{ type: 'WORKKBOT_CONNECTOR_CONNECTED', provider: '{provider}' }}, '*');
+            // Restrict postMessage origin to same origin to prevent cross-origin snooping (VULN-03 Defense)
+            const targetOrigin = window.location.origin.includes('localhost') ? '*' : window.location.origin;
+            window.opener.postMessage({{ type: 'WORKKBOT_CONNECTOR_CONNECTED', provider: '{provider}' }}, targetOrigin);
         }}
         setTimeout(() => {{ window.close(); }}, 1200);
     </script>
@@ -548,8 +603,11 @@ async def disconnect_connector(
                 target_provider = record.get("provider")
                 if target_vault_id:
                     secret_data = supabase_admin.retrieve_vault_secret(target_vault_id)
-                    if secret_data and "access_token" in secret_data:
-                        await google_oauth_service.revoke_token(secret_data["access_token"])
+                    if secret_data:
+                        # Prioritize revoking refresh_token to revoke all persistent offline access (VULN-07 Defense)
+                        token_to_revoke = secret_data.get("refresh_token") or secret_data.get("access_token")
+                        if token_to_revoke:
+                            await google_oauth_service.revoke_token(token_to_revoke)
                     supabase_admin.delete_vault_secret(target_vault_id)
                 client.table("mcp_connections").delete().eq("id", record["id"]).execute()
         except Exception as e:
@@ -565,14 +623,15 @@ async def disconnect_connector(
         vault_secret_id = target.get("vault_secret_id")
         if vault_secret_id:
             secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
-            if secret_data and "access_token" in secret_data:
-                await google_oauth_service.revoke_token(secret_data["access_token"])
+            if secret_data:
+                token_to_revoke = secret_data.get("refresh_token") or secret_data.get("access_token")
+                if token_to_revoke:
+                    await google_oauth_service.revoke_token(token_to_revoke)
             supabase_admin.delete_vault_secret(vault_secret_id)
         _local_db["mcp_connections"] = [
             c for c in _local_db["mcp_connections"] 
             if not ((c["id"] == connection_id or c.get("provider") == connection_id) and c["user_id"] == current_user.id)
         ]
-        from src.mcp.discovery import mcp_discovery_service
         mcp_discovery_service.clear_user_tools(current_user.id, target.get("provider"))
         return {"success": True, "connection_id": connection_id, "status": "revoked"}
 

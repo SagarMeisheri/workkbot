@@ -23,8 +23,42 @@ except Exception:
     _gcp_logger = None
 
 
+import re
+
+# PII & Secret Redaction Patterns (VULN-05 Defense & India DPDP Act 2023)
+AADHAAR_PATTERN = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")
+PAN_PATTERN = re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b")
+SENSITIVE_KEY_PATTERN = re.compile(r"(token|secret|password|authorization|credential|api_key|private_key)", re.IGNORECASE)
+
+
+def scrub_sensitive_audit_payload(val: Any, key_name: str = "") -> Any:
+    """Scrubs secrets, tokens, and PII from parameters and results before persisting to audit tables."""
+    if isinstance(val, dict):
+        scrubbed = {}
+        for k, v in val.items():
+            if SENSITIVE_KEY_PATTERN.search(k):
+                scrubbed[k] = "[REDACTED_SECRET]"
+            else:
+                scrubbed[k] = scrub_sensitive_audit_payload(v, key_name=k)
+        return scrubbed
+    elif isinstance(val, list):
+        return [scrub_sensitive_audit_payload(item, key_name=key_name) for item in val]
+    elif isinstance(val, str):
+        if SENSITIVE_KEY_PATTERN.search(key_name):
+            return "[REDACTED_SECRET]"
+        if AADHAAR_PATTERN.search(val):
+            val = AADHAAR_PATTERN.sub("[REDACTED_AADHAAR]", val)
+        if PAN_PATTERN.search(val):
+            val = PAN_PATTERN.sub("[REDACTED_PAN]", val)
+        # Cap oversized document strings at 4000 characters to prevent excessive retention of customer IP
+        if len(val) > 4000:
+            val = val[:4000] + "... [TRUNCATED FOR DATA RETENTION]"
+        return val
+    return val
+
+
 class ToolAuditService:
-    """Manages immutable audit trail of all MCP tool executions."""
+    """Manages immutable audit trail of all MCP tool executions with PII scrubbing."""
 
     async def log_tool_invocation(
         self,
@@ -38,9 +72,12 @@ class ToolAuditService:
         duration_ms: int = 0,
         status: str = "success",
     ) -> str:
-        """Records tool execution record in Supabase and Google Cloud Logging."""
+        """Records tool execution record in Supabase and Google Cloud Logging with PII redaction."""
         invocation_id = str(uuid.uuid4())
         now_str = datetime.now(timezone.utc).isoformat()
+
+        scrubbed_params = scrub_sensitive_audit_payload(parameters)
+        scrubbed_result = scrub_sensitive_audit_payload(result) if result is not None else None
 
         record = {
             "id": invocation_id,
@@ -49,8 +86,8 @@ class ToolAuditService:
             "session_id": session_id,
             "provider": provider,
             "tool_name": tool_name,
-            "parameters": parameters,
-            "result": result,
+            "parameters": scrubbed_params,
+            "result": scrubbed_result,
             "execution_duration_ms": duration_ms,
             "status": status,
             "created_at": now_str,
