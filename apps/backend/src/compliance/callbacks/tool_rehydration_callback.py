@@ -22,6 +22,15 @@ def rehydrate_arguments(session_id: str, args: Dict[str, Any]) -> Dict[str, Any]
     return session_pii_vault.rehydrate_dict(session_id, args)
 
 
+# Track per-session turn tool call count to enforce limit of 3 at max
+_TURN_TOOL_CALL_COUNTS: Dict[str, int] = {}
+
+
+def reset_turn_tool_call_count(session_id: str) -> None:
+    """Resets the tool call counter at the beginning of a conversational turn."""
+    _TURN_TOOL_CALL_COUNTS[session_id] = 0
+
+
 def tool_rehydration_callback(
     tool_or_session_id: Any,
     args_dict: Optional[Dict[str, Any]] = None,
@@ -42,15 +51,32 @@ def tool_rehydration_callback(
     args = args_dict or {}
 
     session_id = (
-        getattr(tool_context, "session_id", None)
-        or getattr(getattr(tool_context, "session", None), "id", None)
+        getattr(getattr(tool_context, "session", None), "id", None)
+        or getattr(tool_context, "session_id", None)
         or "default_session"
     )
+    if not isinstance(session_id, str):
+        session_id = str(session_id)
 
     rehydrated = rehydrate_arguments(session_id, args)
     if isinstance(args, dict):
         args.clear()
         args.update(rehydrated)
 
-    # Return rehydrated arguments dictionary
-    return rehydrated
+    # Enforce maximum tool call limit of 3 per turn
+    current_count = _TURN_TOOL_CALL_COUNTS.get(session_id, 0) + 1
+    _TURN_TOOL_CALL_COUNTS[session_id] = current_count
+    if current_count > 3:
+        tool_name = getattr(tool, "name", "tool")
+        logger.warning(
+            "Tool call limit exceeded in turn for session=%s (call %d > 3 for tool=%s). Forcing summarization.",
+            session_id, current_count, tool_name
+        )
+        return {
+            "status": "limit_reached",
+            "tool_calls_executed": current_count - 1,
+            "error": "Per-turn tool call limit reached (maximum 3 calls). Do not call any more tools. Please synthesize and summarize the information retrieved so far for the user."
+        }
+
+    # CRITICAL: Return None in ADK so ADK executes the actual tool runner instead of short-circuiting!
+    return None

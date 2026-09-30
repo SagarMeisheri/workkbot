@@ -172,10 +172,7 @@ async def connector_oauth_callback(
         "token_type": "Bearer",
     }
 
-    default_scopes = {
-        "google_workspace": ["drive.readonly", "gmail.send", "calendar.events.readonly"],
-        "zoho_workplace": ["ZohoBooks.invoices.READ", "ZohoCRM.modules.leads.READ"],
-    }.get(provider, ["read", "write"])
+    scopes: List[str] = []
 
     # 1. Seal token in Supabase Vault (pgsodium)
     vault_secret_id = supabase_admin.store_vault_secret(
@@ -198,7 +195,7 @@ async def connector_oauth_callback(
                 "user_id": current_user.id,
                 "org_id": current_user.org_id,
                 "provider": provider,
-                "scopes": default_scopes,
+                "scopes": scopes,
                 "vault_secret_id": vault_secret_id,
                 "status": "active",
                 "created_at": now_str,
@@ -227,7 +224,7 @@ async def connector_oauth_callback(
         "user_id": current_user.id,
         "org_id": current_user.org_id,
         "provider": provider,
-        "scopes": default_scopes,
+        "scopes": scopes,
         "vault_secret_id": vault_secret_id,
         "status": "active",
         "updated_at": now_str,
@@ -239,7 +236,7 @@ async def connector_oauth_callback(
         user_id=current_user.id,
         org_id=current_user.org_id,
         provider=provider,
-        scopes=default_scopes,
+        scopes=scopes,
         status="active",
         updated_at=now_str,
     )

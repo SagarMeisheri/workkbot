@@ -19,7 +19,7 @@ from google.genai import types
 from src.agent.agent import core_agent
 from src.agent.model_tier import ModelTier, model_router
 from src.agent.session_service import WorkkbotEvent, session_service
-from src.compliance.callbacks import pii_anonymize_callback
+from src.compliance.callbacks import pii_anonymize_callback, reset_turn_tool_call_count
 from src.compliance.session_pii_vault import session_pii_vault
 from src.config import settings
 from src.mcp.composio_service import composio_service
@@ -100,9 +100,19 @@ class AdkRunnerSingleton:
         received_partials = False
         run_config = RunConfig(streaming_mode=StreamingMode.SSE)
 
+        # Reset per-turn tool call counter to enforce maximum 3 calls per conversational turn
+        reset_turn_tool_call_count(session_id)
+
         # 3c. Discover active user tools from connected integrations (Spec 04, R04.1 & R04.3)
         user_tools = composio_service.get_user_tools(user_id=user_id, org_id=org_id)
         if user_tools:
+            try:
+                await composio_service.get_or_create_session(
+                    user_id=user_id, org_id=org_id, session_id=session_id
+                )
+            except Exception as e:
+                logger.warning("Failed pre-warming Composio session for %s: %s", session_id, e)
+
             turn_agent = self.agent.clone()
             turn_agent.tools = user_tools
             active_runner = Runner(

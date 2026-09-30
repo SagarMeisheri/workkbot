@@ -6,11 +6,15 @@ Exports:
 - tool_output_mask_callback: after_tool_callback
 """
 from src.compliance.callbacks.pii_anonymize_callback import pii_anonymize_callback
-from src.compliance.callbacks.tool_rehydration_callback import tool_rehydration_callback
+from src.compliance.callbacks.tool_rehydration_callback import (
+    tool_rehydration_callback,
+    reset_turn_tool_call_count,
+)
 from src.compliance.callbacks.tool_output_mask_callback import tool_output_mask_callback
 
 __all__ = [
     "pii_anonymize_callback",
     "tool_rehydration_callback",
+    "reset_turn_tool_call_count",
     "tool_output_mask_callback",
 ]

@@ -84,9 +84,15 @@ class DynamicMcpTool(BaseTool):
         and statutory audit logging.
         """
         start_time = time.time()
-        user_id = getattr(tool_context, "user_id", "system_user")
-        org_id = getattr(tool_context, "org_id", "system_org")
-        session_id = getattr(tool_context, "session_id", None)
+        session = getattr(tool_context, "session", None)
+        session_id = getattr(session, "id", None) or getattr(tool_context, "session_id", None)
+        org_id = getattr(session, "org_id", None) or getattr(tool_context, "org_id", None) or "system_org"
+        user_id = getattr(session, "user_id", None) or getattr(tool_context, "user_id", None) or "system_user"
+        if user_id == "system_user" and session and hasattr(session, "state"):
+            state = getattr(session, "state", {}) or {}
+            user_id = state.get("user_id", user_id)
+            if org_id == "system_org":
+                org_id = state.get("org_id", org_id)
 
         # 1. Human-In-The-Loop gating for mutating actions (Spec 04, R04.4)
         if self.is_critical:

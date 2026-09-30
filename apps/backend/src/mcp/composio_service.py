@@ -19,6 +19,7 @@ logger = logging.getLogger("workkbot.mcp.composio")
 
 
 PROVIDER_TO_TOOLKIT = {
+    "gmail": "gmail",
     "google_workspace": "gmail",
     "zoho_workplace": "zoho",
     "notion": "notion",
@@ -32,7 +33,7 @@ PROVIDER_TO_TOOLKIT = {
 }
 
 TOOLKIT_TO_PROVIDER = {
-    "gmail": "google_workspace",
+    "gmail": "gmail",
     "googlecalendar": "google_workspace",
     "googledrive": "google_workspace",
     "google_workspace": "google_workspace",
@@ -50,6 +51,26 @@ TOOLKIT_TO_PROVIDER = {
     "github": "github",
     "linear": "linear",
 }
+
+
+def _prune_heavy_payload(data: Any) -> Any:
+    """Strips massive raw base64 MIME blobs from email payloads to avoid bloating LLM input tokens."""
+    if not isinstance(data, dict):
+        return data
+    cleaned = dict(data)
+    if "messages" in cleaned and isinstance(cleaned["messages"], list):
+        cleaned_messages = []
+        for msg in cleaned["messages"]:
+            if isinstance(msg, dict):
+                m_copy = dict(msg)
+                # Strip raw payload containing heavy base64 MIME chunks (up to 100KB each)
+                # The useful fields messageText, preview, sender, subject, messageTimestamp are preserved.
+                m_copy.pop("payload", None)
+                cleaned_messages.append(m_copy)
+            else:
+                cleaned_messages.append(msg)
+        cleaned["messages"] = cleaned_messages
+    return cleaned
 
 
 class ComposioService:
@@ -198,9 +219,17 @@ class ComposioService:
             try:
                 # ToolRouterSession.execute accepts keyword-only arguments!
                 res = session_obj.execute(tool_slug=tool_slug, arguments=arguments)
-                log_id = getattr(res, "log_id", None) or getattr(res, "id", None) or generated_log_id
-                data = getattr(res, "data", res)
-                error = getattr(res, "error", None)
+                if isinstance(res, dict):
+                    log_id = res.get("log_id") or getattr(res, "id", None) or generated_log_id
+                    raw_data = res.get("data", res)
+                    error = res.get("error")
+                else:
+                    log_id = getattr(res, "log_id", None) or getattr(res, "id", None) or generated_log_id
+                    raw_data = getattr(res, "data", res)
+                    error = getattr(res, "error", None)
+
+                data = _prune_heavy_payload(raw_data)
+
                 if error:
                     return {
                         "status": "failed",
