@@ -5,7 +5,7 @@ import { Plus, Mic, ArrowUp, ChevronDown, Sparkles } from "lucide-react";
 import { ComposerPlusPopover } from "./composer-plus-popover";
 
 interface FloatingComposerProps {
-  onSendMessage: (text: string, mode: "chat" | "cowork", model: string) => void;
+  onSendMessage: (text: string, model: string) => void;
   onOpenConnectors: () => void;
   disabled?: boolean;
   compact?: boolean;
@@ -18,7 +18,6 @@ export function FloatingComposer({
   compact = false,
 }: FloatingComposerProps) {
   const [text, setText] = useState("");
-  const [mode, setMode] = useState<"chat" | "cowork">("chat");
   const [model, setModel] = useState<"gemini-3.8-flash" | "gemini-3.7-flash">("gemini-3.8-flash");
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
@@ -28,7 +27,7 @@ export function FloatingComposer({
 
   const handleSend = () => {
     if (!text.trim() || disabled) return;
-    onSendMessage(text.trim(), mode, model);
+    onSendMessage(text.trim(), model);
     setText("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -201,29 +200,6 @@ export function FloatingComposer({
               >
                 <Plus className="h-4 w-4" />
               </button>
-
-              <div className="rounded-full bg-muted/60 p-0.5 flex items-center text-xs font-medium border border-border/40">
-                <button
-                  onClick={() => setMode("chat")}
-                  className={`rounded-full px-2.5 py-1 transition-all ${
-                    mode === "chat"
-                      ? "bg-background text-foreground shadow-2xs font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Chat
-                </button>
-                <button
-                  onClick={() => setMode("cowork")}
-                  className={`rounded-full px-2.5 py-1 transition-all ${
-                    mode === "cowork"
-                      ? "bg-background text-foreground shadow-2xs font-semibold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Cowork
-                </button>
-              </div>
             </div>
 
             {/* Right Cluster */}

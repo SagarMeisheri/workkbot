@@ -51,7 +51,6 @@ export function useAdkStreamingChat({
 
   const sendMessage = async (
     text: string,
-    mode: "chat" | "cowork" = "chat",
     model: string = "gemini-3.8-flash",
     checkpointId?: string,
     overrideConversationId?: string

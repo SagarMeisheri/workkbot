@@ -225,7 +225,7 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleSendMessage = async (text: string, mode: "chat" | "cowork", model: string) => {
+  const handleSendMessage = async (text: string, model: string = "gemini-3.8-flash") => {
     const threadTitle = text.slice(0, 35);
     let activeConvId = conversationId;
 
@@ -252,7 +252,7 @@ export default function WorkspacePage() {
       }
     }
 
-    await sendMessage(text, mode, model, undefined, activeConvId);
+    await sendMessage(text, model, undefined, activeConvId);
   };
 
   const handleNewThread = () => {
@@ -354,7 +354,7 @@ export default function WorkspacePage() {
                   onOpenConnectors={() => setIsConnectorsOpen(true)}
                 />
                 <SuggestionCloud
-                  onSelectPrompt={(p) => handleSendMessage(p, "chat", "gemini-3.8-flash")}
+                  onSelectPrompt={(p) => handleSendMessage(p, "gemini-3.8-flash")}
                   hasConnectedTools={Boolean(user)}
                 />
               </div>
@@ -411,7 +411,7 @@ export default function WorkspacePage() {
                             }
                             onRegenerate={
                               msg.role === "assistant"
-                                ? () => sendMessage("Regenerate response with additional details", "chat", "gemini-3.8-flash", msg.checkpointId)
+                                ? () => sendMessage("Regenerate response with additional details", "gemini-3.8-flash", msg.checkpointId)
                                 : undefined
                             }
                           />
