@@ -6,15 +6,25 @@ import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
 import { BACKEND_URL } from "@/lib/config";
 
+export interface ToolCallItem {
+  id?: string;
+  name: string;
+  args?: Record<string, any>;
+  response?: Record<string, any>;
+  status: "calling" | "completed";
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   thought?: string;
+  toolCalls?: ToolCallItem[];
   checkpointId?: string;
   branches?: string[];
   currentBranchIndex?: number;
 }
+
 
 interface AdkChatContainerProps {
   user: any;
@@ -127,6 +137,7 @@ export function useAdkStreamingChat({
 
       let accumulatedContent = "";
       let accumulatedThought = "";
+      const toolCallsMap = new Map<string, ToolCallItem>();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -147,11 +158,27 @@ export function useAdkStreamingChat({
                     accumulatedThought += part.text;
                   } else if (part.text) {
                     accumulatedContent += part.text;
+                  } else if (part.functionCall) {
+                    const fnName = part.functionCall.name || "tool_call";
+                    toolCallsMap.set(fnName, {
+                      name: fnName,
+                      args: part.functionCall.args,
+                      status: "calling",
+                    });
+                  } else if (part.functionResponse) {
+                    const fnName = part.functionResponse.name || "tool_call";
+                    const existing = toolCallsMap.get(fnName) || { name: fnName, status: "completed" };
+                    toolCallsMap.set(fnName, {
+                      ...existing,
+                      response: part.functionResponse.response,
+                      status: "completed",
+                    });
                   }
                 }
               }
 
               // Update assistant message state
+              const currentToolCalls = Array.from(toolCallsMap.values());
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
@@ -159,6 +186,7 @@ export function useAdkStreamingChat({
                         ...m,
                         content: accumulatedContent,
                         thought: accumulatedThought || undefined,
+                        toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
                       }
                     : m
                 )

@@ -1,6 +1,6 @@
 """Auth router handling Reviewer login, Google OAuth scopes, and MCP Connectors."""
 import logging
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -39,6 +39,8 @@ class McpConnectionResponse(BaseModel):
     scopes: List[str]
     status: str
     updated_at: str
+    discovered_tools: Optional[List[Dict[str, Any]]] = None
+
 
 
 class OAuthAuthorizeResponse(BaseModel):
@@ -430,6 +432,8 @@ async def connector_oauth_callback_get(
 @router.get("/connectors", response_model=List[McpConnectionResponse])
 async def list_user_connectors(current_user: CurrentUser = Depends(get_current_user)):
     """Lists active connected MCP integrations for the user."""
+    from src.mcp.discovery import mcp_discovery_service
+
     client = supabase_admin.get_client()
     if client:
         try:
@@ -450,6 +454,7 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
                         scopes=c.get("scopes", []),
                         status=c.get("status", "active"),
                         updated_at=c.get("updated_at", datetime.now(timezone.utc).isoformat()),
+                        discovered_tools=c.get("discovered_tools") or mcp_discovery_service.get_discovered_tools(current_user.id, c["provider"]),
                     )
                     for c in res.data
                 ]
@@ -465,11 +470,13 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
             scopes=c["scopes"],
             status=c["status"],
             updated_at=c["updated_at"],
+            discovered_tools=c.get("discovered_tools") or mcp_discovery_service.get_discovered_tools(current_user.id, c["provider"]),
         )
         for c in _local_db["mcp_connections"]
         if c["user_id"] == current_user.id and c["org_id"] == current_user.org_id
     ]
     return connections
+
 
 
 @router.delete("/connectors/{connection_id}")

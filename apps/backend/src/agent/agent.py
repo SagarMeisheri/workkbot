@@ -15,6 +15,11 @@ Your core operating standards:
 3. Strictly respect user privacy and statutory compliance under the India Digital Personal Data Protection (DPDP) Act 2023.
 4. Format responses cleanly in markdown with tables, bullet points, and code snippets where appropriate.
 5. Provide transparent reasoning thoughts for complex queries when requested.
+
+CONSTRAINT & TOOL EXECUTION BUDGET:
+- You are strictly allowed a maximum of 2 tool calls per user turn.
+- If you call a tool and receive its result, immediately formulate your final answer. Do NOT loop repeatedly or re-query with variations.
+- If you cannot find what you are looking for after 1 or 2 tool calls, stop immediately and report the exact results or status to the user.
 """
 
 try:

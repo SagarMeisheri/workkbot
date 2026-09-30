@@ -115,7 +115,15 @@ try:
             user_id = ctx.get("user_id", "unknown")
             org_id = ctx.get("org_id", "unknown")
             session_id = ctx.get("session_id", "unknown")
-            start_time = time.time()
+            # 0. Enforce maximum 2 tool calls limit per conversational turn
+            tool_call_count = ctx.get("tool_call_count", 0)
+            if tool_call_count >= 2:
+                logger.info("Cap reached: maximum 2 tool calls per turn for session %s", session_id)
+                return {
+                    "status": "tool_limit_reached",
+                    "message": "Maximum 2 tool calls limit reached for this turn. Synthesize your final response with the data retrieved so far.",
+                }
+            ctx["tool_call_count"] = tool_call_count + 1
 
             # 1. Parameter sanitization (CVE-2026-29791)
             sanitized_args = parameter_sanitizer.sanitize_arguments(args or {})
@@ -154,146 +162,23 @@ try:
                     "message": f"{self.provider} is not connected yet. Please connect via Connectors Hub.",
                 }
 
-            # 4. Attempt Agentgateway loopback execution
+            # 4. Execute strictly through MCP via google_mcp_client
             delegated_headers = {
                 "X-Upstream-Authorization": f"Bearer {token}",
                 "Authorization": f"Bearer {token}",
             }
-            try:
-                result = await google_mcp_client.execute_tool(
-                    service=self.service,
-                    tool_name=self.original_name,
-                    arguments=sanitized_args,
-                    delegated_headers=delegated_headers,
-                    user_id=user_id,
-                    org_id=org_id,
-                    session_id=session_id,
-                    confirmation_granted=is_confirmed,
-                )
-                if result.get("status") == "success" or "result" in result:
-                    return result
-            except Exception as e:
-                logger.debug("Agentgateway execution fallback: %s", e)
-
-            # 5. Direct REST API execution fallback for local dev when Agentgateway container is offline
-            direct_result = await self._execute_direct_api_fallback(token, sanitized_args)
-            duration_ms = int((time.time() - start_time) * 1000)
-
-            await tool_audit.log_tool_invocation(
+            result = await google_mcp_client.execute_tool(
+                service=self.service,
+                tool_name=self.original_name,
+                arguments=sanitized_args,
+                delegated_headers=delegated_headers,
                 user_id=user_id,
                 org_id=org_id,
                 session_id=session_id,
-                provider=self.provider,
-                tool_name=self.original_name,
-                parameters=sanitized_args,
-                result=direct_result,
-                duration_ms=duration_ms,
-                status="success" if "error" not in direct_result else "failed",
+                confirmation_granted=is_confirmed,
             )
-            return direct_result
+            return result
 
-        async def _execute_direct_api_fallback(self, token: str, args: Dict[str, Any]) -> Dict[str, Any]:
-            """Direct Google API fallback handler for discovered tools."""
-            headers = {"Authorization": f"Bearer {token}"}
-            try:
-                # Calendar operations
-                if "calendar" in self.service or "calendar" in self.name:
-                    if "list" in self.name:
-                        params = {
-                            "maxResults": args.get("max_results", 10),
-                            "singleEvents": "true",
-                            "orderBy": "startTime",
-                            "timeMin": args.get("time_min") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        }
-                        if args.get("query"):
-                            params["q"] = args["query"]
-                        if args.get("time_max"):
-                            params["timeMax"] = args["time_max"]
-
-                        async with httpx.AsyncClient(timeout=8.0) as client:
-                            resp = await client.get(
-                                "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-                                headers=headers,
-                                params=params,
-                            )
-                            if resp.status_code == 200:
-                                items = resp.json().get("items", [])
-                                events = [
-                                    {
-                                        "id": it.get("id"),
-                                        "summary": it.get("summary", "(No title)"),
-                                        "start": it.get("start", {}).get("dateTime") or it.get("start", {}).get("date"),
-                                        "end": it.get("end", {}).get("dateTime") or it.get("end", {}).get("date"),
-                                        "location": it.get("location"),
-                                        "status": it.get("status"),
-                                    }
-                                    for it in items
-                                ]
-                                return {"status": "success", "events_count": len(events), "events": events}
-                            return {"error": resp.text}
-
-                    elif "create" in self.name:
-                        body = {
-                            "summary": args.get("summary", "New Meeting"),
-                            "description": args.get("description", ""),
-                            "location": args.get("location", ""),
-                            "start": {"dateTime": args.get("start_time")},
-                            "end": {"dateTime": args.get("end_time")},
-                        }
-                        async with httpx.AsyncClient(timeout=8.0) as client:
-                            resp = await client.post(
-                                "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-                                headers={**headers, "Content-Type": "application/json"},
-                                json=body,
-                            )
-                            if resp.status_code in (200, 201):
-                                return {"status": "confirmed", "event": resp.json()}
-                            return {"error": resp.text}
-
-                # Gmail operations
-                elif "gmail" in self.service or "gmail" in self.name:
-                    if "search" in self.name:
-                        async with httpx.AsyncClient(timeout=8.0) as client:
-                            resp = await client.get(
-                                "https://gmail.googleapis.com/gmail/v1/users/me/threads",
-                                headers=headers,
-                                params={"q": args.get("query", ""), "maxResults": args.get("max_results", 10)},
-                            )
-                            if resp.status_code == 200:
-                                return resp.json()
-                            return {"error": resp.text}
-                    elif "draft" in self.name:
-                        return {
-                            "status": "confirmed",
-                            "message": f"Draft created for {args.get('recipient')} with subject '{args.get('subject')}'",
-                        }
-
-                # Drive & Docs operations
-                elif "drive" in self.service or "drive" in self.name:
-                    if "search" in self.name:
-                        q_expr = f"name contains '{args.get('query', '')}' and trashed = false"
-                        async with httpx.AsyncClient(timeout=8.0) as client:
-                            resp = await client.get(
-                                "https://www.googleapis.com/drive/v3/files",
-                                headers=headers,
-                                params={"q": q_expr, "pageSize": args.get("page_size", 10)},
-                            )
-                            if resp.status_code == 200:
-                                return resp.json()
-                            return {"error": resp.text}
-
-                elif "docs" in self.service or "docs" in self.name:
-                    doc_id = args.get("document_id")
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        resp = await client.get(f"https://docs.googleapis.com/v1/documents/{doc_id}", headers=headers)
-                        if resp.status_code == 200:
-                            return {"title": resp.json().get("title", ""), "document": resp.json()}
-                        return {"error": resp.text}
-
-                return {"status": "success", "tool": self.name, "executed": True, "args": args}
-            except Exception as e:
-                logger.warning("Direct API fallback error for %s: %s", self.name, e)
-                return {"error": str(e)}
 
 
     class DynamicMcpToolset(BaseToolset):
@@ -311,6 +196,9 @@ try:
 
             # Retrieve discovered tools for user's active connections
             discovered_specs = mcp_discovery_service.get_discovered_tools(user_id=user_id)
+            if not discovered_specs:
+                return []
+
             tools: List[BaseTool] = []
             for spec in discovered_specs:
                 tools.append(
@@ -324,8 +212,10 @@ try:
                     )
                 )
 
-            logger.info("DynamicMcpToolset yielded %d active tools for user %s", len(tools), user_id)
+            logger.info("DynamicMcpToolset yielded %d active tools for user %s from connected MCP servers", len(tools), user_id)
             return tools
+
+
 
 except ImportError:
     # Fallback placeholders when google-adk is not present

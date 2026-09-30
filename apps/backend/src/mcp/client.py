@@ -17,6 +17,17 @@ logger = logging.getLogger("workkbot.mcp.client")
 
 AGENTGATEWAY_BASE_URL = "http://127.0.0.1:8080"
 
+REMOTE_GOOGLE_MCP_ENDPOINTS = {
+    "calendar": "https://calendarmcp.googleapis.com/mcp/v1",
+    "gmail": "https://gmailmcp.googleapis.com/mcp/v1",
+    "drive": "https://drivemcp.googleapis.com/mcp/v1",
+    "docs": "https://docsmcp.googleapis.com/mcp/v1",
+    "sheets": "https://sheetsmcp.googleapis.com/mcp/v1",
+    "slides": "https://slidesmcp.googleapis.com/mcp/v1",
+    "chat": "https://chatmcp.googleapis.com/mcp/v1",
+    "people": "https://people.googleapis.com/mcp/v1",
+}
+
 
 class GoogleWorkspaceMCPClient:
     """Invokes Google Workspace Remote MCP tools through Agentgateway."""
@@ -68,7 +79,7 @@ class GoogleWorkspaceMCPClient:
         # 2. Sanitize arguments
         sanitized_args = parameter_sanitizer.sanitize_arguments(arguments)
 
-        # 3. Invoke Agentgateway route
+        # 3. Invoke Agentgateway route or direct Remote MCP Server
         url = f"{self.gateway_url}/mcp/google/{service}"
         payload = {
             "jsonrpc": "2.0",
@@ -81,8 +92,19 @@ class GoogleWorkspaceMCPClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(url, json=payload, headers=delegated_headers)
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                try:
+                    resp = await client.post(url, json=payload, headers=delegated_headers)
+                except Exception as net_err:
+                    # Loopback offline: route directly to Remote MCP server endpoint
+                    remote_url = REMOTE_GOOGLE_MCP_ENDPOINTS.get(service)
+                    if remote_url:
+                        token = delegated_headers.get("X-Upstream-Authorization") or delegated_headers.get("Authorization") or ""
+                        remote_headers = {"Authorization": token if token.startswith("Bearer ") else f"Bearer {token}", "Content-Type": "application/json"}
+                        resp = await client.post(remote_url, json=payload, headers=remote_headers)
+                    else:
+                        raise net_err
+
                 duration_ms = int((time.time() - start_time) * 1000)
                 
                 if resp.status_code == 200:
@@ -97,7 +119,7 @@ class GoogleWorkspaceMCPClient:
             duration_ms = int((time.time() - start_time) * 1000)
             result = {"error": str(e)}
             status = "failed"
-            logger.warning("Agentgateway MCP call failed: %s", e)
+            logger.warning("MCP call failed for %s: %s", tool_name, e)
 
         # 4. Audit logging
         await tool_audit.log_tool_invocation(
@@ -115,7 +137,6 @@ class GoogleWorkspaceMCPClient:
         return result
 
     async def list_tools(
-
         self,
         service: str,
         delegated_headers: Dict[str, str],
@@ -132,14 +153,28 @@ class GoogleWorkspaceMCPClient:
         }
         try:
             async with httpx.AsyncClient(timeout=4.0) as client:
-                resp = await client.post(url, json=payload, headers=delegated_headers)
+                try:
+                    resp = await client.post(url, json=payload, headers=delegated_headers)
+                except Exception:
+                    # Loopback offline: try remote endpoint
+                    remote_url = REMOTE_GOOGLE_MCP_ENDPOINTS.get(service)
+                    if not remote_url:
+                        return []
+                    token = delegated_headers.get("X-Upstream-Authorization") or delegated_headers.get("Authorization") or ""
+                    resp = await client.post(
+                        remote_url,
+                        json=payload,
+                        headers={"Authorization": token if token.startswith("Bearer ") else f"Bearer {token}", "Content-Type": "application/json"}
+                    )
+
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, dict) and "result" in data and "tools" in data["result"]:
                         return data["result"]["tools"]
         except Exception as e:
-            logger.debug("Agentgateway MCP tools/list failed for %s: %s", service, e)
+            logger.debug("MCP tools/list failed for %s: %s", service, e)
         return []
+
 
 
 google_mcp_client = GoogleWorkspaceMCPClient()

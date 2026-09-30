@@ -351,33 +351,61 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
                   return (
                     <div
                       key={conn.id}
-                      className="p-4 rounded-xl border border-border bg-card flex items-center justify-between gap-4 shadow-2xs"
+                      className="p-4 rounded-xl border border-border bg-card flex flex-col gap-3 shadow-2xs"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center font-bold text-xs uppercase border border-border">
-                          {title.slice(0, 2)}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-sm font-medium text-foreground">{title}</h4>
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="text-[10px] text-emerald-600 font-medium uppercase">Active</span>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center font-bold text-xs uppercase border border-border">
+                            {title.slice(0, 2)}
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            Scopes: {conn.scopes ? conn.scopes.join(", ") : "Standard tool access"}
-                          </p>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-medium text-foreground">{title}</h4>
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              <span className="text-[10px] text-emerald-600 font-medium uppercase">Active</span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              Scopes: {conn.scopes ? conn.scopes.join(", ") : "Standard tool access"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDisconnect(conn.id)}
+                            className="h-8 px-2.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Disconnect</span>
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleDisconnect(conn.id)}
-                          className="h-8 px-2.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 text-xs font-medium flex items-center gap-1.5 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Disconnect</span>
-                        </button>
-                      </div>
+                      {/* Discovered Tools Badge Section */}
+                      {conn.discovered_tools && conn.discovered_tools.length > 0 && (
+                        <div className="pt-2.5 border-t border-border/50">
+                          <details className="text-[11px] group">
+                            <summary className="cursor-pointer text-primary hover:underline font-medium list-none flex items-center justify-between">
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                <span>Connected MCP Tools ({conn.discovered_tools.length})</span>
+                              </span>
+                              <span className="text-[10px] text-muted-foreground group-open:rotate-180 transition-transform">▼</span>
+                            </summary>
+                            <div className="flex flex-wrap gap-1.5 mt-2 max-h-32 overflow-y-auto pt-1">
+                              {conn.discovered_tools.map((t: any, idx: number) => (
+                                <span
+                                  key={idx}
+                                  className="px-2 py-0.5 rounded-md bg-muted/80 text-[11px] font-mono text-foreground border border-border/50"
+                                  title={t.description}
+                                >
+                                  {t.name}
+                                </span>
+                              ))}
+                            </div>
+                          </details>
+                        </div>
+                      )}
                     </div>
                   );
                 })

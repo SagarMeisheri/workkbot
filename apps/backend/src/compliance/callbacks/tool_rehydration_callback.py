@@ -52,5 +52,17 @@ def tool_rehydration_callback(
         args.clear()
         args.update(rehydrated)
 
+    # Tool Execution Budget Guardrail (Callback-based interceptor)
+    state = getattr(tool_context, "state", None)
+    if isinstance(state, dict):
+        tool_name = getattr(tool, "name", "tool")
+        call_count = state.get(f"{tool_name}_calls", 0) + 1
+        state[f"{tool_name}_calls"] = call_count
+        total_calls = state.get("total_tool_calls", 0) + 1
+        state["total_tool_calls"] = total_calls
+        if total_calls > 2 or call_count > 2:
+            logger.warning("Tool call budget exceeded in callback guardrail for %s", tool_name)
+            return {"error": "Maximum execution budget for tool calls (2) exceeded for this turn."}
+
     # Return rehydrated arguments dictionary
     return rehydrated

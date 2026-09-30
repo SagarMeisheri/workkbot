@@ -90,9 +90,8 @@ class AdkRunnerSingleton:
         )
 
         model_event_id = f"evt_{uuid.uuid4().hex[:12]}_m"
-        last_event_id = model_event_id
-        received_partials = False
-        run_config = RunConfig(streaming_mode=StreamingMode.SSE)
+        # Cap total LLM calls to 3 (max 2 tool execution cycles + 1 final answer)
+        run_config = RunConfig(streaming_mode=StreamingMode.SSE, max_llm_calls=3)
 
         # 4. Set turn context for dynamic MCP tools resolution
         from src.mcp.google_tools import current_turn_context
@@ -100,13 +99,18 @@ class AdkRunnerSingleton:
             "user_id": user_id,
             "org_id": org_id,
             "session_id": session_id,
+            "message": message,
             "auth_token": auth_token,
             "state_delta": state_delta or {},
+            "tool_call_count": 0,
         }
         token_ctx_token = current_turn_context.set(turn_ctx)
 
+
         # 5. Execute turn via canonical Google ADK Runner with StreamingMode.SSE
         rehydrator = session_pii_vault.create_stream_rehydrator(session_id)
+        received_partials = False
+        last_event_id = model_event_id
         try:
             async for adk_event in self._runner.run_async(
                 user_id=user_id,
