@@ -20,7 +20,6 @@ logger = logging.getLogger("workkbot.mcp.composio")
 
 PROVIDER_TO_TOOLKIT = {
     "gmail": "gmail",
-    "google_workspace": "gmail",
     "zoho_workplace": "zoho",
     "notion": "notion",
     "slack": "slack",
@@ -33,7 +32,7 @@ PROVIDER_TO_TOOLKIT = {
 }
 
 TOOLKIT_TO_PROVIDER = {
-    "gmail": "gmail",
+    "gmail": "google_workspace",
     "googlecalendar": "google_workspace",
     "googledrive": "google_workspace",
     "google_workspace": "google_workspace",
