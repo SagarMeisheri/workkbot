@@ -33,12 +33,14 @@ async def mock_run_turn_stream(
     user_id: str,
     org_id: str,
     session_id: str,
-    message: str,
+    message: str = "",
     checkpoint_id: Optional[str] = None,
     model_preference: Optional[str] = None,
     state_delta: Optional[Dict[str, Any]] = None,
     conversation_id: Optional[str] = None,
     auth_token: Optional[str] = None,
+    tool_confirmation: Optional[Dict[str, Any]] = None,
+    invocation_id: Optional[str] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Deterministic, zero-cost mock for AdkRunnerSingleton.run_turn_stream.
     

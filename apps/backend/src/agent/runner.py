@@ -45,17 +45,20 @@ class AdkRunnerSingleton:
         user_id: str,
         org_id: str,
         session_id: str,
-        message: str,
+        message: str = "",
         checkpoint_id: Optional[str] = None,
         model_preference: Optional[str] = None,
         state_delta: Optional[Dict[str, Any]] = None,
         conversation_id: Optional[str] = None,
         auth_token: Optional[str] = None,
+        tool_confirmation: Optional[Dict[str, Any]] = None,
+        invocation_id: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Executes a conversational turn using canonical Google ADK 2.0.
         Supports checkpoint-based branching when checkpoint_id is provided.
         Streams real model outputs progressively via StreamingMode.SSE.
+        Supports in-chat HITL pauses and confirmations for dynamic tools.
         """
         start_time = time.time()
 
@@ -73,21 +76,43 @@ class AdkRunnerSingleton:
         # 2. Model routing with circuit-breaker evaluation
         active_model = self.model_router.get_route_model(model_preference)
         logger.info(
-            "Routing turn session=%s model=%s (checkpoint=%s, branch=%s)",
+            "Routing turn session=%s model=%s (checkpoint=%s, branch=%s, confirmation=%s)",
             session_id,
             active_model,
             checkpoint_id,
             branch_name,
+            bool(tool_confirmation),
         )
 
-        # 2b. Sanitize prompt text & register in ephemeral SessionPiiVault (Spec 03, R03.1b)
-        sanitized_message, _ = pii_anonymize_callback(session_id, message)
+        # 2b. Prepare message Content: either function confirmation or sanitized prompt text
+        if tool_confirmation:
+            confirmed = bool(tool_confirmation.get("confirmed", True))
+            payload = tool_confirmation.get("payload") or {}
+            new_message = types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_function_response(
+                        name="adk_request_confirmation",
+                        response={
+                            "confirmed": confirmed,
+                            "payload": payload,
+                        },
+                    )
+                ],
+            )
+        else:
+            sanitized_message, _ = pii_anonymize_callback(session_id, message)
+            new_message = types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=sanitized_message)],
+            )
 
-        # 3. Prepare user message in canonical google.genai types.Content format with tokenized text
-        new_message = types.Content(
-            role="user",
-            parts=[types.Part.from_text(text=sanitized_message)],
-        )
+        # Ensure user and org context exist in session state for dynamic tool discovery
+        merged_state_delta = dict(state_delta or {})
+        if "org_id" not in merged_state_delta:
+            merged_state_delta["org_id"] = org_id
+        if "user_id" not in merged_state_delta:
+            merged_state_delta["user_id"] = user_id
 
         model_event_id = f"evt_{uuid.uuid4().hex[:12]}_m"
         last_event_id = model_event_id
@@ -100,14 +125,44 @@ class AdkRunnerSingleton:
             async for adk_event in self._runner.run_async(
                 user_id=user_id,
                 session_id=session_id,
+                invocation_id=invocation_id,
                 new_message=new_message,
-                state_delta=state_delta,
+                state_delta=merged_state_delta,
                 run_config=run_config,
             ):
                 if adk_event.author == "user":
                     continue
 
                 eid = adk_event.id or model_event_id
+                last_event_id = eid
+
+                # Check for in-chat HITL tool confirmation requests
+                if getattr(adk_event, "actions", None) and getattr(adk_event.actions, "requested_tool_confirmations", None):
+                    for call_id, confirmation in adk_event.actions.requested_tool_confirmations.items():
+                        yield {
+                            "id": eid,
+                            "author": "model",
+                            "branch": branch_name,
+                            "type": "tool_confirmation_request",
+                            "toolCallId": call_id,
+                            "hint": getattr(confirmation, "hint", ""),
+                            "payload": getattr(confirmation, "payload", None),
+                            "turnComplete": False,
+                        }
+
+                # Check for tool call events
+                if hasattr(adk_event, "get_function_calls") and adk_event.get_function_calls():
+                    for fc in adk_event.get_function_calls():
+                        yield {
+                            "id": eid,
+                            "author": "model",
+                            "branch": branch_name,
+                            "type": "tool_call",
+                            "toolCallId": fc.id,
+                            "toolName": fc.name,
+                            "arguments": fc.args,
+                            "turnComplete": False,
+                        }
                 last_event_id = eid
                 is_partial = getattr(adk_event, "partial", False)
                 content = adk_event.content

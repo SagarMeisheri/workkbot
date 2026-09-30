@@ -15,6 +15,8 @@ import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import { HitlConfirmationCard } from "@/components/chat/hitl-confirmation-card";
+import { ToolGroup } from "@/components/assistant-ui/elements/tool-group.aui";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/config";
 
@@ -48,6 +50,7 @@ export default function WorkspacePage() {
     setMessages,
     isStreaming,
     sendMessage,
+    confirmTool,
     flagModalState,
     handleOpenFlagModal,
     handleCloseFlagModal,
@@ -452,6 +455,24 @@ export default function WorkspacePage() {
                         {msg.role === "assistant" && msg.thought && (
                           <Reasoning text={msg.thought} />
                         )}
+
+                        {/* Collapsible Tool Traces */}
+                        {msg.role === "assistant" && msg.toolTraces && msg.toolTraces.length > 0 && (
+                          <div className="w-full max-w-[85%]">
+                            <ToolGroup traces={msg.toolTraces} />
+                          </div>
+                        )}
+
+                        {/* In-Chat Interactive HITL Approval Card for Mutating Actions */}
+                        {msg.role === "assistant" && msg.toolConfirmations && msg.toolConfirmations.map((conf) => (
+                          <div key={conf.toolCallId || conf.tool_call_id} className="w-full max-w-[85%]">
+                            <HitlConfirmationCard
+                              toolCallId={conf.toolCallId || conf.tool_call_id || "call_default"}
+                              payload={conf}
+                              onConfirm={confirmTool}
+                            />
+                          </div>
+                        ))}
 
                         <div
                           className={`p-4 rounded-2xl text-sm leading-relaxed max-w-[85%] ${

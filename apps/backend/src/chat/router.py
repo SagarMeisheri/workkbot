@@ -27,6 +27,8 @@ class ChatStreamRequest(BaseModel):
     model: Optional[str] = None
     stateDelta: Optional[Dict[str, Any]] = None
     type: Optional[str] = "message"
+    toolConfirmation: Optional[Dict[str, Any]] = None
+    invocationId: Optional[str] = None
 
 
 class ContentReportRequest(BaseModel):
@@ -105,6 +107,8 @@ async def chat_stream_endpoint(
         state_delta=payload.stateDelta,
         conversation_id=payload.conversationId,
         auth_token=current_user.token,
+        tool_confirmation=payload.toolConfirmation,
+        invocation_id=payload.invocationId,
     )
 
     return StreamingResponse(

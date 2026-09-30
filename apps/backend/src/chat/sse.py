@@ -36,6 +36,9 @@ async def format_adk_sse_stream(
                 wire_event["content"] = event["content"]
             if "actions" in event:
                 wire_event["actions"] = event["actions"]
+            for field in ("type", "toolCallId", "toolName", "arguments", "hint", "payload"):
+                if field in event:
+                    wire_event[field] = event[field]
             if "errorCode" in event:
                 wire_event["errorCode"] = event["errorCode"]
             if "errorMessage" in event:
