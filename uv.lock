@@ -3221,6 +3221,7 @@ name = "workkbot-backend"
 version = "0.1.0"
 source = { editable = "apps/backend" }
 dependencies = [
+    { name = "composio" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-adk" },
@@ -3248,6 +3249,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "composio", specifier = ">=0.22.0" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "google-adk", specifier = ">=2.6.0" },

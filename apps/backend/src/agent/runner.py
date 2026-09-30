@@ -22,6 +22,7 @@ from src.agent.session_service import WorkkbotEvent, session_service
 from src.compliance.callbacks import pii_anonymize_callback
 from src.compliance.session_pii_vault import session_pii_vault
 from src.config import settings
+from src.mcp.composio_service import composio_service
 
 logger = logging.getLogger("workkbot.runner")
 
@@ -99,10 +100,24 @@ class AdkRunnerSingleton:
         received_partials = False
         run_config = RunConfig(streaming_mode=StreamingMode.SSE)
 
+        # 3c. Discover active user tools from connected integrations (Spec 04, R04.1 & R04.3)
+        user_tools = composio_service.get_user_tools(user_id=user_id, org_id=org_id)
+        if user_tools:
+            turn_agent = self.agent.clone()
+            turn_agent.tools = user_tools
+            active_runner = Runner(
+                agent=turn_agent,
+                session_service=self.session_service,
+                app_name="workkbot",
+                auto_create_session=True,
+            )
+        else:
+            active_runner = self._runner
+
         # 4. Execute turn via canonical Google ADK Runner with StreamingMode.SSE
         rehydrator = session_pii_vault.create_stream_rehydrator(session_id)
         try:
-            async for adk_event in self._runner.run_async(
+            async for adk_event in active_runner.run_async(
                 user_id=user_id,
                 session_id=session_id,
                 new_message=new_message,

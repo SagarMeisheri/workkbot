@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     
     # Composio Platform API Key (Spec 04)
     COMPOSIO_API_KEY: str = os.getenv("COMPOSIO_API_KEY", "")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
     
     model_config = {
         "env_file": [

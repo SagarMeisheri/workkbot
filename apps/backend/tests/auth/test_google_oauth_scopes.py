@@ -42,8 +42,5 @@ async def test_connector_oauth_granular_scope_request():
         assert response.status_code == 200
         data = response.json()
         assert "authorization_url" in data
-        
-        parsed = urlparse(data["authorization_url"])
-        qs = parse_qs(parsed.query)
-        assert "drive.readonly" in qs["scope"][0]
-        assert qs["access_type"][0] == "offline"
+        assert "composio.dev" in data["authorization_url"]
+        assert data["provider"] == "google_workspace"

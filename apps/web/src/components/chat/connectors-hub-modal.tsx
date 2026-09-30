@@ -52,6 +52,16 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
     if (isOpen) {
       fetchConnections();
     }
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "COMPOSIO_AUTH_SUCCESS") {
+        fetchConnections();
+        setConnectingProvider(null);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -62,31 +72,63 @@ export function ConnectorsHubModal({ isOpen, onClose, user }: ConnectorsHubModal
       const token = user?.access_token || localStorage.getItem("workkbot_token");
       if (!token) {
         alert("Please sign in first to connect tools.");
+        setConnectingProvider(null);
         return;
       }
-      // Symmetrical OAuth callback endpoint storing into Supabase Vault
-      const res = await fetch(`${BACKEND_URL}/api/v1/auth/connectors/oauth/callback`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          provider: connector.id,
-          code: `auth-code-${Date.now()}`,
-        }),
-      });
 
-      if (res.ok) {
-        const newConn = await res.json();
-        setActiveConnections((prev) => [...prev.filter((c) => c.provider !== connector.id), newConn]);
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        console.error("Connection failed:", errData);
+      // 1. Request real Composio OAuth Authorization URL from backend
+      const callbackUrl = `${window.location.origin}/connectors/callback?provider=${connector.id}`;
+      const authUrlRes = await fetch(
+        `${BACKEND_URL}/api/v1/auth/connectors/oauth/authorize?provider=${connector.id}&redirect_uri=${encodeURIComponent(
+          callbackUrl
+        )}&use_composio=true`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!authUrlRes.ok) {
+        const errData = await authUrlRes.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to initiate connector authentication.");
       }
-    } catch (e) {
+
+      const { authorization_url } = await authUrlRes.json();
+
+      if (!authorization_url) {
+        throw new Error("No authorization URL returned by gateway.");
+      }
+
+      // 2. Open Composio Hosted Login / OAuth window
+      const width = 600;
+      const height = 750;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+
+      const popup = window.open(
+        authorization_url,
+        "composio_oauth",
+        `width=${width},height=${height},top=${top},left=${left},status=no,toolbar=no,menubar=no`
+      );
+
+      if (!popup) {
+        // Fallback if popup blocked by browser
+        window.location.href = authorization_url;
+        return;
+      }
+
+      // 3. Poll for window closure and refresh connections
+      const pollTimer = setInterval(() => {
+        if (!popup || popup.closed) {
+          clearInterval(pollTimer);
+          setConnectingProvider(null);
+          fetchConnections();
+        }
+      }, 1000);
+    } catch (e: any) {
       console.error("Connect error:", e);
-    } finally {
+      alert(e.message || "Failed to connect to tool.");
       setConnectingProvider(null);
     }
   };

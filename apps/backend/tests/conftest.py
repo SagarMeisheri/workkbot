@@ -145,3 +145,11 @@ def auto_mock_gemini_runner(monkeypatch):
         return
 
     monkeypatch.setattr(AdkRunnerSingleton, "run_turn_stream", mock_run_turn_stream)
+
+
+@pytest.fixture(autouse=True)
+def auto_mock_composio(monkeypatch):
+    """Guarantees zero outbound network calls or record creation on Composio Platform during tests."""
+    from src.mcp.composio_service import composio_service
+
+    monkeypatch.setattr(composio_service, "get_client", lambda: None)

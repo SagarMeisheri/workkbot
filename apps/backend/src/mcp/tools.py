@@ -60,6 +60,20 @@ class DynamicMcpTool(BaseTool):
         else:
             self.is_critical = is_critical
 
+    def _get_declaration(self) -> Optional[Any]:
+        """Provides the FunctionDeclaration to Google ADK / Gemini."""
+        try:
+            from google.genai import types
+            clean_schema = dict(self.parameters_schema) if self.parameters_schema else {"type": "object", "properties": {}}
+            return types.FunctionDeclaration(
+                name=self.name,
+                description=self.description,
+                parameters_json_schema=clean_schema,
+            )
+        except Exception as e:
+            logger.debug("Failed building FunctionDeclaration for %s: %s", self.name, e)
+            return None
+
     async def run_async(
         self,
         args: Dict[str, Any],
@@ -137,6 +151,8 @@ class DynamicMcpTool(BaseTool):
                     session_id=session_id or f"sess_{user_id}",
                     tool_slug=self.name,
                     arguments=sanitized_args,
+                    user_id=user_id,
+                    org_id=org_id,
                 )
                 composio_log_id = comp_res.get("log_id")
                 if comp_res.get("status") == "failed":

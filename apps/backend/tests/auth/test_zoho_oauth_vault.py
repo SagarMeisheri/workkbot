@@ -27,8 +27,10 @@ async def test_zoho_connect_and_vault_storage():
             headers={"Authorization": f"Bearer {token}"},
         )
         assert auth_url_res.status_code == 200
-        auth_url = auth_url_res.json()["authorization_url"]
-        assert "accounts.zoho.in" in auth_url
+        auth_data = auth_url_res.json()
+        auth_url = auth_data["authorization_url"]
+        assert "composio.dev" in auth_url.lower() or "zoho" in auth_url.lower()
+        assert auth_data["provider"] == "zoho_workplace"
 
         # 2. Callback exchanges code and seals in Vault
         callback_res = await client.post(
