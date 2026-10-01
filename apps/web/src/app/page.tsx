@@ -423,6 +423,7 @@ export default function WorkspacePage() {
               <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto px-4 py-6 my-auto">
                 <ChatHeroGreeting user={user} />
                 <FloatingComposer
+                  user={user}
                   onSendMessage={handleSendMessage}
                   onOpenConnectors={() => setIsConnectorsOpen(true)}
                 />
@@ -558,6 +559,7 @@ export default function WorkspacePage() {
 
                   <FloatingComposer
                     compact={true}
+                    user={user}
                     onSendMessage={handleSendMessage}
                     onOpenConnectors={() => setIsConnectorsOpen(true)}
                   />
