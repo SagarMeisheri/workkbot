@@ -12,16 +12,28 @@ from pydantic import BaseModel
 
 from src.config import settings
 from src.auth.dependencies import CurrentUser, get_current_user
+from contextlib import asynccontextmanager
 from src.auth.client import supabase_admin, _local_db
 from src.routers.auth import router as auth_router
 from src.routers.consent import router as consent_router
 from src.routers.account import router as account_router
 from src.chat.router import router as chat_router
+from src.vm.router import router as vm_router
+from src.vm.sandbox_manager import desktop_manager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # Automatically terminate all active E2B sandboxes when backend shuts down or disconnects
+    desktop_manager.cleanup_all()
+
 
 app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0",
     description="Enterprise Identity, Connectors Hub & DPDP Consent API",
+    lifespan=lifespan,
 )
 
 # CORS Configuration for apps/web and local development
@@ -38,6 +50,7 @@ app.include_router(auth_router)
 app.include_router(consent_router)
 app.include_router(account_router)
 app.include_router(chat_router)
+app.include_router(vm_router)
 
 
 @app.get("/healthz", tags=["health"])

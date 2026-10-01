@@ -88,7 +88,11 @@ class SupabaseAdkSessionService(BaseSessionService):
 
     def _client(self, auth_token: Optional[str] = None, session_id: Optional[str] = None):
         token = auth_token or current_session_token.get() or (session_id and _session_tokens.get(session_id))
-        return supabase_admin.get_authenticated_client(token)
+        if token:
+            client = supabase_admin.get_authenticated_client(token)
+            if client:
+                return client
+        return supabase_admin.get_client()
 
     async def create_session(
         self,

@@ -124,7 +124,7 @@ async def list_conversations(
 ):
     """Lists conversations for the authenticated user and org (R02.4)."""
     local_convs = [c for c in _local_db.get("conversations", []) if c["user_id"] == current_user.id and c["org_id"] == current_user.org_id]
-    client = supabase_admin.get_authenticated_client(current_user.token)
+    client = supabase_admin.get_client() or supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
             res = client.table("conversations").select("*").eq("user_id", current_user.id).eq("org_id", current_user.org_id).order("updated_at", desc=True).execute()
@@ -146,7 +146,7 @@ async def create_conversation(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Initializes a new conversation thread."""
-    client = supabase_admin.get_authenticated_client(current_user.token)
+    client = supabase_admin.get_client() or supabase_admin.get_authenticated_client(current_user.token)
     conv_id = payload.id or str(uuid.uuid4())
     row = {
         "id": conv_id,
@@ -180,7 +180,7 @@ async def get_conversation(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Fetches a conversation thread and its events with RLS tenant isolation."""
-    client = supabase_admin.get_authenticated_client(current_user.token)
+    client = supabase_admin.get_client() or supabase_admin.get_authenticated_client(current_user.token)
     if client:
         try:
             conv_res = client.table("conversations").select("*").eq("id", conversation_id).eq("user_id", current_user.id).execute()

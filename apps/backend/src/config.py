@@ -3,6 +3,15 @@ import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
+# Proactively load apps/backend/.env into os.environ if present
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(dotenv_path=_env_path, override=False)
+except ImportError:
+    pass
+
 
 class Settings(BaseSettings):
     APP_NAME: str = "Workkbot Backend"
@@ -45,6 +54,10 @@ class Settings(BaseSettings):
     FALLBACK_MODEL: str = os.getenv("FALLBACK_MODEL", "gemini-3.7-flash")
     LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     
+    # E2B Desktop Sandbox & Kernel Cloud Browser (Spec 11)
+    E2B_API_KEY: str = os.getenv("E2B_API_KEY", "")
+    KERNEL_API_KEY: str = os.getenv("KERNEL_API_KEY", "")
+    
     model_config = {
         "env_file": [
             str(Path(__file__).resolve().parent.parent / ".env"),
@@ -61,3 +74,9 @@ if settings.GEMINI_API_KEY and not os.environ.get("GEMINI_API_KEY"):
     os.environ["GEMINI_API_KEY"] = settings.GEMINI_API_KEY
 if settings.GOOGLE_API_KEY and not os.environ.get("GOOGLE_API_KEY"):
     os.environ["GOOGLE_API_KEY"] = settings.GOOGLE_API_KEY
+
+# Ensure E2B & Kernel API Keys are accessible to SDKs
+if settings.E2B_API_KEY:
+    os.environ["E2B_API_KEY"] = settings.E2B_API_KEY
+if settings.KERNEL_API_KEY:
+    os.environ["KERNEL_API_KEY"] = settings.KERNEL_API_KEY

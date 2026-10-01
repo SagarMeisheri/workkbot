@@ -21,6 +21,10 @@ dependencies = [
     "spacy>=3.8.0",
     "google-cloud-dlp>=3.18.0",
     "google-cloud-logging>=3.11.0",
+    "e2b>=2.51.0",
+    "e2b-desktop>=0.1.0",
+    "kernel>=0.115.0",
+    "playwright>=1.40.0",
 ]
 
 [project.optional-dependencies]

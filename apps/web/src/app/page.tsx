@@ -15,6 +15,7 @@ import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import { E2BDesktopViewer } from "@/components/chat/e2b-desktop-viewer";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/config";
 
@@ -29,6 +30,13 @@ export default function WorkspacePage() {
   const [threads, setThreads] = useState<Array<ThreadItemData>>([]);
   const [activeThread, setActiveThread] = useState<string>("New chat");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [vmSession, setVmSession] = useState<{
+    active: boolean;
+    streamUrl?: string;
+    sessionId?: string;
+    isLoggedIn?: boolean;
+    pendingItem?: any;
+  }>({ active: false });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -64,6 +72,67 @@ export default function WorkspacePage() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isStreaming]);
+
+  // Auto-detect E2B Desktop stream URL and automatically open Split View
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === "assistant") {
+      // 1. Check tool calls for stream_url (support direct, output, or result wrapping)
+      if (lastMsg.toolCalls) {
+        for (const tc of lastMsg.toolCalls) {
+          const resp = tc.response as any;
+          const streamUrl = resp?.stream_url || resp?.output?.stream_url || resp?.result?.stream_url;
+          if (streamUrl) {
+            setVmSession({
+              active: true,
+              streamUrl: streamUrl,
+              sessionId: resp.session_id || resp?.output?.session_id || resp?.result?.session_id,
+              isLoggedIn: resp.is_logged_in || false,
+              pendingItem: resp.pending_item || tc.args,
+            });
+            setIsCanvasOpen(true);
+            return;
+          }
+        }
+      }
+      // 2. Check text content for stream url
+      const match = lastMsg.content.match(/https:\/\/[^\s)"]+(?:zoho\.in|preview_session|e2b)[^\s)"]*/i);
+      if (match) {
+        setVmSession((prev) => ({
+          ...prev,
+          active: true,
+          streamUrl: match[0],
+        }));
+        setIsCanvasOpen(true);
+        return;
+      }
+
+      // 3. Fallback: Query /api/v1/vm/session if message or tool mentions Zoho Books
+      const contentLower = lastMsg.content.toLowerCase();
+      const hasZohoTool = lastMsg.toolCalls?.some((tc) => tc.name.toLowerCase().includes("zoho"));
+      if (contentLower.includes("zoho") || contentLower.includes("desktop") || hasZohoTool) {
+        const token = user?.access_token || (typeof window !== "undefined" ? localStorage.getItem("workkbot_token") : null);
+        fetch(`${BACKEND_URL}/api/v1/vm/session`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((vmData) => {
+            if (vmData && vmData.active && vmData.stream_url) {
+              setVmSession({
+                active: true,
+                streamUrl: vmData.stream_url,
+                sessionId: vmData.session_id,
+                isLoggedIn: vmData.is_logged_in || false,
+                pendingItem: vmData.pending_item,
+              });
+              setIsCanvasOpen(true);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [messages, user]);
 
   const fetchConversations = async (token: string) => {
     try {
@@ -535,6 +604,16 @@ export default function WorkspacePage() {
                             }
                           />
                         )}
+
+                        {/* Interactive Split View Pill for E2B Desktop Stream */}
+                        {msg.role === "assistant" && vmSession.streamUrl && (
+                          <button
+                            onClick={() => setIsCanvasOpen(true)}
+                            className="mt-2 text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 font-medium transition-colors"
+                          >
+                            <span>🖥️ Open Zoho Desktop in Split View</span>
+                          </button>
+                        )}
                       </div>
                     ))}
                     {/* Auto-scroll target anchor */}
@@ -568,22 +647,46 @@ export default function WorkspacePage() {
             )}
           </div>
 
-          {/* Optional Split Canvas Artifact Frame */}
+          {/* Optional Split Canvas / E2B Desktop Frame */}
           {isCanvasOpen && (
-            <div className="w-1/2 border-l border-border bg-card p-6 flex flex-col">
-              <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Artifact Canvas
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] font-medium">
-                    Sandboxed
-                  </span>
+            <div className="w-1/2 border-l border-border bg-card flex flex-col h-full overflow-hidden">
+              {vmSession.active && vmSession.streamUrl ? (
+                <E2BDesktopViewer
+                  streamUrl={vmSession.streamUrl}
+                  sessionId={vmSession.sessionId}
+                  isLoggedIn={vmSession.isLoggedIn}
+                  pendingItem={vmSession.pendingItem}
+                  token={user?.access_token}
+                  onClose={() => setIsCanvasOpen(false)}
+                  onLoginConfirmed={() => {
+                    setVmSession((prev) => ({ ...prev, isLoggedIn: true }));
+                    setMessages((prev) => [
+                      ...prev,
+                      {
+                        id: `msg_${Date.now()}_sys`,
+                        role: "assistant",
+                        content: `✅ Zoho Books login confirmed! The agent is now executing the autonomous computer-use vision loop to locate fields and create **${vmSession.pendingItem?.name || "your item"}** in Zoho Books.`,
+                      },
+                    ]);
+                  }}
+                />
+              ) : (
+                <div className="p-6 flex-1 flex flex-col">
+                  <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Artifact Canvas
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] font-medium">
+                        Sandboxed
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex-1 flex items-center justify-center border border-dashed border-border rounded-xl text-xs text-muted-foreground text-center px-4">
+                    No active desktop stream open. Ask Workkbot to add an item in Zoho Books to view the live desktop stream in Split View.
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 flex items-center justify-center border border-dashed border-border rounded-xl text-xs text-muted-foreground">
-                No active artifact open in canvas. Toggle artifacts from chat responses.
-              </div>
+              )}
             </div>
           )}
         </div>

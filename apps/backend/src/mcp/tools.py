@@ -124,7 +124,9 @@ class ToolIntentRouter:
         "chat": ["chat", "space", "message", "channel"],
         "people": ["contact", "person", "email", "directory", "colleague"],
         "zoho_workplace": ["zoho", "invoice", "gst", "bill", "tax", "lead", "crm", "customer", "vendor"],
-        "books": ["invoice", "bill", "gst", "accounting", "ledger", "payment"],
+        "zohobooks": ["zoho", "books", "item", "catalog", "inventory", "goods", "service", "price", "add", "new"],
+        "zohobooks_vm": ["zoho", "books", "item", "catalog", "inventory", "goods", "service", "price", "add", "new"],
+        "books": ["zoho", "books", "invoice", "bill", "gst", "accounting", "ledger", "payment", "item"],
         "crm": ["crm", "lead", "deal", "contact", "pipeline"],
         "slack": ["slack", "channel", "ping", "message", "dm", "workspace"],
         "notion": ["notion", "wiki", "page", "database", "workspace"],
@@ -266,6 +268,49 @@ try:
                     "confirmation_request": challenge.to_dict(),
                 }
 
+            # 2b. Special handler for Autonomous E2B Desktop Computer Use (Zoho Books Add Item)
+            if self.name == "zoho_books_add_item" or self.service == "zohobooks_vm":
+                from src.vm.sandbox_manager import desktop_manager
+                from src.vm.zoho_books_operator import ZohoBooksItemOperator
+                sandbox, sid, stream_url = desktop_manager.get_or_create_sandbox(
+                    user_id=user_id,
+                    org_id=org_id,
+                    session_id=session_id,
+                )
+                state = desktop_manager.get_session_state(sid) or {}
+                if not state.get("is_logged_in"):
+                    desktop_manager.set_pending_item(sid, sanitized_args)
+                    return {
+                        "status": "awaiting_login",
+                        "action": "open_split_stream",
+                        "stream_url": stream_url,
+                        "session_id": sid,
+                        "item_name": sanitized_args.get("name"),
+                        "selling_price": sanitized_args.get("selling_price"),
+                        "message": (
+                            f"Zoho Books login is required to add '{sanitized_args.get('name')}'. "
+                            f"I have opened the interactive desktop in the Split View on your right. "
+                            f"Please log in there, then click '[I Have Logged In - Proceed]' to create the item."
+                        ),
+                    }
+                else:
+                    operator = ZohoBooksItemOperator(sandbox)
+                    await operator.navigate_to_new_item_page()
+                    fill_res = await operator.fill_new_item_form(sanitized_args)
+                    return {
+                        "status": "awaiting_save_confirmation",
+                        "action": "confirm_item_save",
+                        "session_id": sid,
+                        "item_name": sanitized_args.get("name"),
+                        "selling_price": sanitized_args.get("selling_price"),
+                        "cost_price": sanitized_args.get("cost_price"),
+                        "details": fill_res,
+                        "message": (
+                            f"I have filled in the New Item form for '{sanitized_args.get('name')}' in Zoho Books. "
+                            f"Please review the details in the Split View and confirm to save."
+                        ),
+                    }
+
             # 3. Resolve user credentials from Supabase Vault for this tool's provider
             token = await get_active_provider_token(self.provider, user_id)
             if not token:
@@ -299,20 +344,43 @@ try:
             super().__init__(tool_filter=None)
 
         async def get_tools(self, readonly_context: Any = None) -> List[BaseTool]:
-            """Returns dynamically constructed ADK tools discovered from active MCP connections."""
+            """Returns dynamically constructed ADK tools discovered from active MCP connections and native VM tools."""
             ctx = current_turn_context.get() or {}
             user_id = ctx.get("user_id")
-            if not user_id:
-                return []
+            if not user_id and readonly_context:
+                user_id = getattr(readonly_context, "user_id", None) or getattr(getattr(readonly_context, "session", None), "user_id", None)
 
-            # Retrieve discovered tools for user's active connections
-            discovered_specs = mcp_discovery_service.get_discovered_tools(user_id=user_id)
-            if not discovered_specs:
-                return []
+            # Ensure user_id fallback so tools are never dropped due to context loss
+            user_id = user_id or getattr(self, "_last_user_id", None) or "00000000-0000-0000-0000-000000000001"
+            self._last_user_id = user_id
 
-            # Apply Tool Intent Router if tool count > 25
-            turn_input = ctx.get("turn_input") or ctx.get("user_message") or ""
-            selected_specs = tool_intent_router.filter_tools(discovered_specs, turn_input)
+            # 1. Native Autonomous E2B Desktop Computer Use Tool spec for Zoho Books
+            vm_specs = [{
+                "name": "zoho_books_add_item",
+                "original_name": "zoho_books_add_item",
+                "description": "Add a new inventory or service item into Zoho Books catalog via autonomous E2B Desktop Computer Use.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name of the item, e.g. Royal Basmati Rice 5kg"},
+                        "type": {"type": "string", "enum": ["Goods", "Service"], "description": "Type of item"},
+                        "unit": {"type": "string", "description": "Unit of measurement, e.g. bag, pcs, kg, box"},
+                        "selling_price": {"type": "number", "description": "Selling Price in INR"},
+                        "cost_price": {"type": "number", "description": "Cost Price in INR"},
+                        "description": {"type": "string", "description": "Description of the item"}
+                    },
+                    "required": ["name", "selling_price"]
+                },
+                "service": "zohobooks_vm",
+                "provider": "zohobooks",
+            }]
+
+            # 2. Retrieve discovered tools for user's active connections
+            discovered_specs = mcp_discovery_service.get_discovered_tools(user_id=user_id) or []
+            all_specs = vm_specs + discovered_specs
+
+            turn_input = ctx.get("turn_input") or ctx.get("user_message") or ctx.get("message") or ""
+            selected_specs = tool_intent_router.filter_tools(all_specs, turn_input)
 
             tools: List[BaseTool] = []
             for spec in selected_specs:
@@ -328,12 +396,12 @@ try:
                 )
 
             logger.info(
-                "DynamicMcpToolset yielded %d active tools (out of %d discovered) for user %s",
+                "DynamicMcpToolset yielded %d active tools for user %s",
                 len(tools),
-                len(discovered_specs),
                 user_id,
             )
             return tools
+
 
 except ImportError:
     # Fallback placeholders when google-adk is not present
