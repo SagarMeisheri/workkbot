@@ -29,19 +29,22 @@ try:
         tool_output_mask_callback,
     )
     from src.mcp.tools import dynamic_mcp_toolset
+    from src.agent.tools.flight_tools import flight_tool
 
-    # Canonical Google ADK 2.0 LlmAgent instance with dynamic MCP toolset
+    # Canonical Google ADK 2.0 LlmAgent instance with dynamic MCP toolset and autonomous browser tools
     root_agent = Agent(
         name="workkbot_core",
         model=settings.DEFAULT_MODEL,
         description="Intelligent enterprise AI assistant.",
         instruction=WORKKBOT_SYSTEM_INSTRUCTION,
-        tools=[dynamic_mcp_toolset],
+        tools=[dynamic_mcp_toolset, flight_tool],
         before_model_callback=pii_anonymize_callback,
         before_tool_callback=tool_rehydration_callback,
         after_tool_callback=tool_output_mask_callback,
     )
 except ImportError:
+    from src.agent.tools.flight_tools import flight_tool
+
     # Fallback definition when google-adk is not yet synced in local runner
     class _LlmAgentFallback:
         def __init__(
@@ -66,7 +69,7 @@ except ImportError:
         model=settings.DEFAULT_MODEL,
         description="Sovereign AI enterprise coworker for Indian SMBs and global teams.",
         instruction=WORKKBOT_SYSTEM_INSTRUCTION,
-        tools=[],
+        tools=[flight_tool],
     )
 
 # Canonical exports

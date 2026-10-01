@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     DEFAULT_MODEL: str = os.getenv("DEFAULT_MODEL", "gemini-3.8-flash")
     FALLBACK_MODEL: str = os.getenv("FALLBACK_MODEL", "gemini-3.7-flash")
     LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+
+    # Kernel AI Cloud Browser Infrastructure (Spec 11)
+    KERNEL_API_KEY: str = os.getenv("KERNEL_API_KEY", "")
+    KERNEL_BASE_URL: str = os.getenv("KERNEL_BASE_URL", "https://api.onkernel.com")
+    BROWSER_CDP_FALLBACK_URL: str = os.getenv("BROWSER_CDP_FALLBACK_URL", "")
     
     model_config = {
         "env_file": [

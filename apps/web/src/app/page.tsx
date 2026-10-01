@@ -15,6 +15,7 @@ import { Reasoning } from "@/components/assistant-ui/reasoning";
 import { ActionBar } from "@/components/assistant-ui/action-bar";
 import { FlagModal } from "@/components/assistant-ui/flag-modal";
 import { MarkdownContent } from "@/components/chat/markdown-content";
+import { KernelBrowserViewer } from "@/components/chat/kernel-browser-viewer";
 import { supabase } from "@/lib/supabase";
 import { BACKEND_URL } from "@/lib/config";
 
@@ -29,6 +30,12 @@ export default function WorkspacePage() {
   const [threads, setThreads] = useState<Array<ThreadItemData>>([]);
   const [activeThread, setActiveThread] = useState<string>("New chat");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [browserSession, setBrowserSession] = useState<{
+    active: boolean;
+    sessionId?: string;
+    liveViewUrl?: string;
+    task?: string;
+  }>({ active: false });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +49,37 @@ export default function WorkspacePage() {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  // Poll for active Kernel Cloud Browser micro-VM session to show live split view
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    const checkSession = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/v1/vm/session`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.active && data.live_view_url) {
+            setBrowserSession({
+              active: true,
+              sessionId: data.session_id,
+              liveViewUrl: data.live_view_url,
+              task: data.task,
+            });
+            // Auto open the split view canvas when a browser session becomes active
+            setIsCanvasOpen(true);
+          } else if (!data.active && browserSession.active) {
+            setBrowserSession({ active: false });
+          }
+        }
+      } catch {
+        // ignore polling failures
+      }
+    };
+
+    checkSession();
+    interval = setInterval(checkSession, 2500);
+    return () => clearInterval(interval);
+  }, [browserSession.active]);
 
   const {
     messages,
@@ -535,6 +573,16 @@ export default function WorkspacePage() {
                             }
                           />
                         )}
+
+                        {/* Interactive Split View Pill for Kernel Cloud Browser Stream */}
+                        {msg.role === "assistant" && browserSession.liveViewUrl && (
+                          <button
+                            onClick={() => setIsCanvasOpen(true)}
+                            className="mt-2 text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 font-medium transition-colors"
+                          >
+                            <span>🖥️ Open Live Cloud Browser (Split View)</span>
+                          </button>
+                        )}
                       </div>
                     ))}
                     {/* Auto-scroll target anchor */}
@@ -568,22 +616,41 @@ export default function WorkspacePage() {
             )}
           </div>
 
-          {/* Optional Split Canvas Artifact Frame */}
+          {/* Optional Split Canvas / Kernel Cloud Browser Frame */}
           {isCanvasOpen && (
-            <div className="w-1/2 border-l border-border bg-card p-6 flex flex-col">
-              <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Artifact Canvas
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] font-medium">
-                    Sandboxed
-                  </span>
+            <div className="w-1/2 border-l border-border bg-card flex flex-col h-full overflow-hidden">
+              {browserSession.liveViewUrl ? (
+                <KernelBrowserViewer
+                  liveViewUrl={browserSession.liveViewUrl}
+                  taskTitle={browserSession.task || "Flight Price Search"}
+                  sessionId={browserSession.sessionId}
+                  token={user?.access_token}
+                  onClose={() => setIsCanvasOpen(false)}
+                />
+              ) : (
+                <div className="p-6 flex-1 flex flex-col">
+                  <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Cloud Browser Canvas
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-medium">
+                        Kernel AI
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setIsCanvasOpen(false)}
+                      className="text-xs text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-accent"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-border rounded-xl text-xs text-muted-foreground text-center p-6 gap-2">
+                    <p className="font-medium text-foreground">No active cloud browser session.</p>
+                    <p className="max-w-xs">Ask Workkbot to check flight prices (e.g. &ldquo;Check flight prices from Mumbai to Delhi&rdquo;) to launch a live Kernel browser stream in this split view.</p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 flex items-center justify-center border border-dashed border-border rounded-xl text-xs text-muted-foreground">
-                No active artifact open in canvas. Toggle artifacts from chat responses.
-              </div>
+              )}
             </div>
           )}
         </div>
