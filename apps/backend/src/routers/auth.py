@@ -475,11 +475,23 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
     """Lists active connected MCP integrations for the user."""
     from src.mcp.discovery import mcp_discovery_service
 
-    client = supabase_admin.get_client()
+    client = supabase_admin.get_authenticated_client(current_user.token) or supabase_admin.get_client()
     if client:
         try:
-            res = client.rpc("get_user_mcp_connections", {"p_user_id": current_user.id}).execute()
-            if res.data:
+            records = []
+            try:
+                res = client.rpc("get_user_mcp_connections", {"p_user_id": current_user.id}).execute()
+                if res.data:
+                    records = res.data
+            except Exception as rpc_err:
+                logger.debug("get_user_mcp_connections RPC failed, falling back to direct table query: %s", rpc_err)
+
+            if not records:
+                tbl_res = client.table("mcp_connections").select("*").eq("user_id", current_user.id).eq("status", "active").execute()
+                if tbl_res.data:
+                    records = tbl_res.data
+
+            if records:
                 return [
                     McpConnectionResponse(
                         id=str(c["id"]),
@@ -491,7 +503,7 @@ async def list_user_connectors(current_user: CurrentUser = Depends(get_current_u
                         updated_at=str(c.get("updated_at") or datetime.now(timezone.utc).isoformat()),
                         discovered_tools=c.get("discovered_tools") or mcp_discovery_service.get_discovered_tools(current_user.id, c["provider"]),
                     )
-                    for c in res.data
+                    for c in records
                 ]
         except Exception as e:
             logger.warning("Error loading connectors from Supabase: %s", e)

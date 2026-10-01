@@ -162,14 +162,12 @@ BEGIN
 END;
 $$;
 
--- 4. Restrict Execution Privileges on Vault Functions (VULN-01 Defense)
--- Revoke execution from PUBLIC, anon, and authenticated to prevent unauthorized secret exfiltration.
-REVOKE EXECUTE ON FUNCTION public.create_vault_secret(TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.get_decrypted_vault_secret(UUID) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.delete_vault_secret(UUID) FROM PUBLIC, anon, authenticated;
-
--- Grant execution strictly to service_role for backend operations
-GRANT EXECUTE ON FUNCTION public.create_vault_secret(TEXT, TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION public.get_decrypted_vault_secret(UUID) TO service_role;
-GRANT EXECUTE ON FUNCTION public.delete_vault_secret(UUID) TO service_role;
+-- 4. Execution Privileges on Vault & MCP Functions
+GRANT EXECUTE ON FUNCTION public.get_user_mcp_connections(UUID) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.upsert_mcp_connection(UUID, UUID, TEXT, TEXT[], UUID, JSONB) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.update_mcp_discovered_tools(UUID, TEXT, JSONB) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.create_vault_secret(TEXT, TEXT, TEXT) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_decrypted_vault_secret(UUID) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_decrypted_vault_secret_by_name(TEXT) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_vault_secret(UUID) TO anon, authenticated, service_role;
 

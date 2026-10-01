@@ -112,7 +112,7 @@ class McpDiscoveryService:
                 if tools:
                     user_dict[p] = tools
 
-        # 2. Check live Supabase table for active connections with stored tools via secure RPC
+        # 2. Check live Supabase table for active connections with stored tools via secure RPC or direct query
         client = supabase_admin.get_client()
         if client:
             try:
@@ -125,6 +125,16 @@ class McpDiscoveryService:
                         tools = r.get("discovered_tools")
                         if tools and p not in user_dict:
                             user_dict[p] = tools
+                if not user_dict:
+                    tbl_res = client.table("mcp_connections").select("provider, discovered_tools").eq("user_id", user_id).eq("status", "active").execute()
+                    if tbl_res.data:
+                        for r in tbl_res.data:
+                            p = r.get("provider")
+                            if provider and p != provider:
+                                continue
+                            tools = r.get("discovered_tools")
+                            if tools and p not in user_dict:
+                                user_dict[p] = tools
             except Exception:
                 pass
 

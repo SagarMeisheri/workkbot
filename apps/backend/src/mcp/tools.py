@@ -40,7 +40,7 @@ async def get_active_provider_token(provider: str, user_id: Optional[str] = None
     if not user_id:
         return None
 
-    # 1. Check live Supabase table mcp_connections via secure RPC
+    # 1. Check live Supabase table mcp_connections via secure RPC or direct query
     vault_secret_id = None
     client = supabase_admin.get_client()
     if client:
@@ -51,6 +51,13 @@ async def get_active_provider_token(provider: str, user_id: Optional[str] = None
                     if c.get("provider") == provider:
                         vault_secret_id = c.get("vault_secret_id")
                         break
+            if not vault_secret_id:
+                tbl_res = client.table("mcp_connections").select("provider, vault_secret_id").eq("user_id", user_id).eq("status", "active").execute()
+                if tbl_res.data:
+                    for c in tbl_res.data:
+                        if c.get("provider") == provider:
+                            vault_secret_id = c.get("vault_secret_id")
+                            break
         except Exception:
             pass
 
