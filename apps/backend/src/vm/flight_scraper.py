@@ -89,6 +89,16 @@ class FlightPriceScraper:
 
                 # Agentic Loop: LLM observes real Playwright DOM accessibility tree and decides actions (max 10 tool calls)
                 while tool_calls_count < MAX_TOOL_CALLS:
+                    # Early exit if search results are already loaded on the page
+                    try:
+                        if "/flights/search" in page.url:
+                            result_cards = await page.get_by_role("listitem").all()
+                            if len(result_cards) >= 1:
+                                logger.info("Flight results already rendered on page (%d items). Finishing loop.", len(result_cards))
+                                break
+                    except Exception:
+                        pass
+
                     try:
                         dom_snapshot = await page.locator("body").aria_snapshot()
                     except Exception:
@@ -127,22 +137,36 @@ class FlightPriceScraper:
 
                     try:
                         if action_type == "click":
-                            loc = page.locator(f"[aria-label*='{target}'], button:has-text('{target}'), text='{target}'").first
-                            if await loc.is_visible(timeout=3000):
-                                await loc.click()
+                            loc = await self._resolve_locator(page, target)
+                            if loc is not None:
+                                await loc.click(timeout=4000)
                             else:
-                                await page.get_by_role("button", name=target).first.click()
+                                if any(w in target.lower() for w in ["search", "explore", "done", "enter"]):
+                                    await page.keyboard.press("Enter")
+                                else:
+                                    logger.warning("Could not resolve locator for click target '%s'", target)
                             await page.wait_for_timeout(800)
 
                         elif action_type == "type":
-                            loc = page.locator(f"[aria-label*='{target}'], input[placeholder*='{target}'], input:focus").first
-                            if await loc.is_visible(timeout=3000):
-                                await loc.click()
-                                await page.wait_for_timeout(300)
-                                active = page.locator("input:focus, [role='combobox'] input").first
+                            loc = await self._resolve_locator(page, target)
+                            if loc is not None:
+                                try:
+                                    await loc.click(timeout=3000)
+                                    await page.wait_for_timeout(300)
+                                except Exception:
+                                    pass
+
+                            active = page.locator("input:focus, [role='combobox'] input, input[type='text']:focus").first
+                            active_cnt = active.count()
+                            if hasattr(active_cnt, "__await__"):
+                                has_active = (await active_cnt) > 0
+                            else:
+                                has_active = True if active_cnt else False
+
+                            if has_active:
                                 await active.fill(text_to_type)
                             else:
-                                await page.keyboard.type(text_to_type)
+                                await page.keyboard.type(text_to_type, delay=30)
                             await page.wait_for_timeout(600)
 
                         elif action_type == "press_key":
@@ -299,15 +323,21 @@ class FlightPriceScraper:
                 f"Current Step: {step_number} of max {max_steps} allowed tool calls.\n\n"
                 f"Accessibility DOM Snapshot:\n"
                 f"```\n{dom_snapshot[:5000]}\n```\n\n"
-                f"Decide the NEXT single atomic action to perform. You must respond in valid JSON with this schema:\n"
+                f"OPTIMAL ACTION SEQUENCE (Complete within 3-4 steps):\n"
+                f"1. To enter destination, click 'Where to?', type '{destination}', then press 'Enter'.\n"
+                f"2. If origin is not '{origin}', click 'Where from?', type '{origin}', then press 'Enter'.\n"
+                f"3. Click 'Search' or 'Explore' (or press key 'Enter') to navigate to the flight results page.\n"
+                f"4. AVOID the calendar date picker: Do NOT click on dates or search for calendar 'Done' buttons. Press 'Enter' or click 'Search' directly to submit.\n"
+                f"5. Once flight listings, airlines (IndiGo, Air India, etc.), or prices (₹) appear, return action 'done'.\n\n"
+                f"Respond in valid JSON with this schema:\n"
                 f"{{\n"
                 f'  "action": "click" | "type" | "press_key" | "done",\n'
-                f'  "target": "<element aria-label, role, text or placeholder, e.g. Where to?, Where from?, Search>",\n'
-                f'  "text": "<text to type if action is type, e.g. BOM, DEL>",\n'
-                f'  "key": "<key to press if action is press_key, e.g. Enter, Tab>",\n'
+                f'  "target": "<plain element text or label, e.g. Where to?, Where from?, Search, Explore, DEL>",\n'
+                f'  "text": "<text to type if action is type, e.g. {destination}>",\n'
+                f'  "key": "<key to press if action is press_key, e.g. Enter, Escape>",\n'
                 f'  "reason": "<brief justification>"\n'
                 f"}}\n"
-                f"If flight listings or search results are already visible, or no further action is needed, return action 'done'."
+                f"If flight listings or search results are already visible, return action 'done'."
             )
 
             response = await client.aio.models.generate_content(
@@ -326,6 +356,111 @@ class FlightPriceScraper:
             logger.warning("Gemini decision failed in agentic loop step %d: %s", step_number, e)
 
         return {"action": "done", "reason": "Default completion"}
+
+    @staticmethod
+    def _clean_target_text(target: str) -> tuple[Optional[str], str]:
+        """
+        Parses role and text from target string, stripping quotes and CSS artifact tokens.
+        E.g.
+          'combobox "Where from?"' -> ('combobox', 'Where from?')
+          'button "Search"'        -> ('button', 'Search')
+          '"Where to?"'            -> (None, 'Where to?')
+          'Where from?'            -> (None, 'Where from?')
+        """
+        raw = target.strip().strip("\"'")
+        css_match = re.match(r"^\[(?:aria-label|placeholder)\*?=['\"]?(.*?)['\"]?\]$", raw)
+        if css_match:
+            raw = css_match.group(1).strip().strip("\"'")
+
+        match = re.match(
+            r"^(combobox|button|textbox|searchbox|option|menuitem|link|tab)\s+[\"']?(.*?)[\"']?$",
+            raw,
+            re.IGNORECASE,
+        )
+        if match:
+            role = match.group(1).lower()
+            text = match.group(2).strip().strip("\"'")
+            return role, text
+
+        cleaned = raw.strip("\"'")
+        return None, cleaned
+
+    async def _resolve_locator(self, page: Any, target: str) -> Optional[Any]:
+        """
+        Resiliently finds a Playwright Locator for a target without raw CSS string concatenation errors.
+        Handles aria-snapshot formats like 'combobox "Where from?"', plain labels, placeholders, and buttons.
+        """
+        if not target or not target.strip():
+            return None
+
+        role, clean_text = self._clean_target_text(target)
+        if not clean_text:
+            return None
+
+        async def _available(loc: Any) -> bool:
+            try:
+                cnt = loc.count()
+                if hasattr(cnt, "__await__"):
+                    c = await cnt
+                else:
+                    c = int(cnt) if isinstance(cnt, (int, float)) else 1
+                return c > 0
+            except Exception:
+                return False
+
+        # 1. If explicit role was identified from aria-snapshot
+        if role:
+            try:
+                loc = page.get_by_role(role, name=clean_text)
+                if await _available(loc):
+                    return loc.first
+            except Exception:
+                pass
+
+        # 2. Try get_by_label (handles aria-label and <label>)
+        try:
+            loc = page.get_by_label(clean_text, exact=False)
+            if await _available(loc):
+                return loc.first
+        except Exception:
+            pass
+
+        # 3. Try get_by_placeholder
+        try:
+            loc = page.get_by_placeholder(clean_text, exact=False)
+            if await _available(loc):
+                return loc.first
+        except Exception:
+            pass
+
+        # 4. Try common interactive roles (combobox, button, textbox, searchbox, option)
+        for r in ["combobox", "button", "textbox", "searchbox", "option"]:
+            try:
+                loc = page.get_by_role(r, name=clean_text)
+                if await _available(loc):
+                    return loc.first
+            except Exception:
+                pass
+
+        # 5. Try get_by_text
+        try:
+            loc = page.get_by_text(clean_text, exact=False)
+            if await _available(loc):
+                return loc.first
+        except Exception:
+            pass
+
+        # 6. Fallback: safe button or input locator
+        safe_text = re.sub(r'["\'\?\[\]]', "", clean_text).strip()
+        if safe_text:
+            try:
+                loc = page.locator(f'button:has-text("{safe_text}")').first
+                if await _available(loc):
+                    return loc
+            except Exception:
+                pass
+
+        return None
 
 
 flight_price_scraper = FlightPriceScraper()

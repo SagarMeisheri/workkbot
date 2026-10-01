@@ -39,6 +39,7 @@ class KernelBrowserManager:
         self.fallback_cdp_url = fallback_cdp_url if fallback_cdp_url is not None else settings.BROWSER_CDP_FALLBACK_URL
         self.active_session: Optional[BrowserSession] = None
         self.active_task: Optional[str] = None
+        self._active_sessions: set[str] = set()
 
     async def create_session(
         self,
@@ -54,10 +55,13 @@ class KernelBrowserManager:
         if not self.api_key:
             if self.fallback_cdp_url:
                 logger.info("No KERNEL_API_KEY provided; using BROWSER_CDP_FALLBACK_URL: %s", self.fallback_cdp_url)
-                return BrowserSession(
+                sess = BrowserSession(
                     session_id="fallback_local_cdp_session",
                     cdp_ws_url=self.fallback_cdp_url,
                 )
+                self._active_sessions.add(sess.session_id)
+                self.active_session = sess
+                return sess
             raise ValueError(
                 "KERNEL_API_KEY is not configured. Please set KERNEL_API_KEY in apps/backend/.env."
             )
@@ -103,6 +107,7 @@ class KernelBrowserManager:
                     replay_view_url=replay_view_url,
                 )
                 self.active_session = session
+                self._active_sessions.add(session_id)
                 return session
             except httpx.HTTPError as e:
                 logger.error("HTTP error connecting to Kernel API at %s: %s", self.base_url, e)
@@ -110,6 +115,7 @@ class KernelBrowserManager:
 
     async def close_session(self, session_id: str) -> bool:
         """Terminates the cloud browser micro-VM on Kernel AI."""
+        self._active_sessions.discard(session_id)
         if self.active_session and self.active_session.session_id == session_id:
             self.active_session = None
             self.active_task = None
@@ -133,6 +139,27 @@ class KernelBrowserManager:
                 logger.warning("Error terminating Kernel browser session %s: %s", session_id, e)
                 return False
 
+    async def close_all_sessions(self) -> None:
+        """Terminates all active Kernel browser micro-VMs when backend shuts down."""
+        sessions_to_close = list(self._active_sessions)
+        if self.active_session and self.active_session.session_id not in sessions_to_close:
+            sessions_to_close.append(self.active_session.session_id)
+
+        if not sessions_to_close:
+            logger.debug("No active Kernel browser sessions to close.")
+            return
+
+        logger.info(
+            "Closing %d active Kernel browser session(s) on backend shutdown: %s",
+            len(sessions_to_close),
+            sessions_to_close,
+        )
+        for sid in sessions_to_close:
+            try:
+                await self.close_session(sid)
+            except Exception as e:
+                logger.warning("Error closing Kernel session %s during shutdown: %s", sid, e)
+
     def get_active_session_info(self) -> Dict[str, Any]:
         """Returns the active browser session info for front-end split view."""
         if not self.active_session:
@@ -153,3 +180,22 @@ class KernelBrowserManager:
 
 
 kernel_browser_manager = KernelBrowserManager()
+
+import atexit
+
+def _sync_cleanup_on_exit():
+    """Emergency synchronous cleanup if backend process terminates abruptly."""
+    if kernel_browser_manager.api_key and kernel_browser_manager._active_sessions:
+        for sid in list(kernel_browser_manager._active_sessions):
+            if sid.startswith("mock_") or sid.startswith("fallback_"):
+                continue
+            try:
+                with httpx.Client(timeout=3.0) as client:
+                    client.delete(
+                        f"{kernel_browser_manager.base_url}/browsers/{sid}",
+                        headers={"Authorization": f"Bearer {kernel_browser_manager.api_key}"},
+                    )
+            except Exception:
+                pass
+
+atexit.register(_sync_cleanup_on_exit)

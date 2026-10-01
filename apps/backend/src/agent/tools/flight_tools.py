@@ -78,15 +78,19 @@ try:
                 f"Flight Search Results: {result.get('origin', origin)} -> {result.get('destination', destination)} on {result.get('date', 'selected date')}:"
             ]
             if not flights:
-                lines.append("No flights found or automated search returned no live options.")
-            for f in flights:
-                flight_no_str = f" ({f['flight_no']})" if f.get("flight_no") else ""
-                lines.append(
-                    f"- {f.get('airline', 'Flight')}{flight_no_str}: Departure {f.get('departure', 'N/A')} -> Arrival {f.get('arrival', 'N/A')} "
-                    f"({f.get('duration', 'N/A')}, {f.get('stops', 'N/A')}) — ₹{f.get('price_inr', 0):,}"
+                summary_text = (
+                    f"Flight Search: 0 live flights found for {result.get('origin', origin)} -> {result.get('destination', destination)} on {result.get('date', 'selected date')}. "
+                    "The cloud browser automation could not extract live pricing results. "
+                    "CRITICAL: Do NOT estimate, fabricate, or make up flight numbers, airlines, or prices. State truthfully that the automated browser search found no live options."
                 )
-
-            summary_text = "\n".join(lines)
+            else:
+                for f in flights:
+                    flight_no_str = f" ({f['flight_no']})" if f.get("flight_no") else ""
+                    lines.append(
+                        f"- {f.get('airline', 'Flight')}{flight_no_str}: Departure {f.get('departure', 'N/A')} -> Arrival {f.get('arrival', 'N/A')} "
+                        f"({f.get('duration', 'N/A')}, {f.get('stops', 'N/A')}) — ₹{f.get('price_inr', 0):,}"
+                    )
+                summary_text = "\n".join(lines)
             return {
                 "status": "success",
                 "summary": summary_text,

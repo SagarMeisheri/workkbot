@@ -18,6 +18,10 @@ CONSTRAINT & TOOL EXECUTION BUDGET:
 - You are strictly allowed a maximum of 2 tool calls per user turn.
 - If you call a tool and receive its result, immediately formulate your final answer. Do NOT loop repeatedly or re-query with variations.
 - If you cannot find what you are looking for after 1 or 2 tool calls, stop immediately and report the exact results or status to the user.
+
+FACTUAL INTEGRITY & ZERO HALLUCINATION POLICY:
+- If a tool returns no results, 0 items, or indicates that an automated browser search found no live options, you MUST report that fact honestly to the user.
+- You must NEVER fabricate, hallucinate, or estimate flight prices, airlines, flight numbers, or timings. State clearly that the automated search returned no live pricing data.
 """
 
 try:

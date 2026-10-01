@@ -292,3 +292,64 @@ def test_root_agent_registration():
     """Verifies that flight_tool is registered in the canonical Google ADK root_agent."""
     tool_names = [t.name for t in root_agent.tools if hasattr(t, "name")]
     assert "search_flight_prices" in tool_names
+
+
+def test_clean_target_text_parsing():
+    """Verifies parsing of aria snapshot targets, quotes, and CSS notation."""
+    scraper = FlightPriceScraper()
+    role, text = scraper._clean_target_text('combobox "Where from?"')
+    assert role == "combobox"
+    assert text == "Where from?"
+
+    role, text = scraper._clean_target_text('button "Search"')
+    assert role == "button"
+    assert text == "Search"
+
+    role, text = scraper._clean_target_text('"[aria-label*=\'Where from?\']"')
+    assert text == "Where from?"
+
+    role, text = scraper._clean_target_text('"Where to?"')
+    assert role is None
+    assert text == "Where to?"
+
+    role, text = scraper._clean_target_text("Where from?")
+    assert role is None
+    assert text == "Where from?"
+
+
+@pytest.mark.asyncio
+async def test_resolve_locator_special_characters():
+    """Verifies _resolve_locator uses get_by_role / get_by_label without CSS syntax errors on quotes & question marks."""
+    scraper = FlightPriceScraper()
+    mock_page = MagicMock()
+
+    mock_loc = MagicMock()
+    mock_loc.count = AsyncMock(return_value=1)
+    mock_loc.first = mock_loc
+    mock_page.get_by_role.return_value = mock_loc
+
+    # Target with quotes and question mark that previously failed Playwright CSS parsing
+    result = await scraper._resolve_locator(mock_page, 'combobox "Where from?"')
+    assert result == mock_loc
+    mock_page.get_by_role.assert_called_with("combobox", name="Where from?")
+
+
+@pytest.mark.asyncio
+async def test_kernel_browser_manager_close_all_on_shutdown():
+    """Verifies that close_all_sessions closes all tracked micro-VMs on backend shutdown."""
+    manager = KernelBrowserManager(api_key="test_key", base_url="https://api.onkernel.com")
+    manager._active_sessions = {"sess_1", "sess_2"}
+    manager.active_session = BrowserSession(
+        session_id="sess_1",
+        cdp_ws_url="wss://test/cdp/sess_1",
+    )
+
+    closed_sessions = []
+    async def mock_close(sid: str):
+        closed_sessions.append(sid)
+        return True
+
+    manager.close_session = mock_close
+    await manager.close_all_sessions()
+
+    assert set(closed_sessions) == {"sess_1", "sess_2"}

@@ -12,17 +12,28 @@ from pydantic import BaseModel
 
 from src.config import settings
 from src.auth.dependencies import CurrentUser, get_current_user
+from contextlib import asynccontextmanager
 from src.auth.client import supabase_admin, _local_db
 from src.routers.auth import router as auth_router
 from src.routers.consent import router as consent_router
 from src.routers.account import router as account_router
 from src.chat.router import router as chat_router
 from src.vm.router import router as vm_router
+from src.vm.kernel_manager import kernel_browser_manager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # Clean up all active Kernel cloud browser micro-VMs when backend shuts down
+    await kernel_browser_manager.close_all_sessions()
+
 
 app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0",
     description="Enterprise Identity, Connectors Hub & DPDP Consent API",
+    lifespan=lifespan,
 )
 
 # CORS Configuration for apps/web and local development
