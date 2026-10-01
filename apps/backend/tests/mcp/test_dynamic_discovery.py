@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from src.mcp.discovery import mcp_discovery_service
-from src.mcp.google_tools import DynamicMcpTool, DynamicMcpToolset, current_turn_context
+from src.mcp.tools import DynamicMcpTool, DynamicMcpToolset, current_turn_context
 from src.auth.client import _local_db
 
 

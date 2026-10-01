@@ -2,7 +2,7 @@
 
 Queries connected Remote MCP servers via standard JSON-RPC 'tools/list' protocol,
 discovers all available tool declarations with JSON Schemas dynamically,
-and registers them into the active Workkbot ADK runtime.
+and registers them into the active Workkbot ADK runtime across all providers.
 """
 import logging
 from typing import Any, Dict, List, Optional
@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from src.auth.client import supabase_admin, _local_db
 from src.mcp.client import google_mcp_client
+from src.mcp.registry import connector_registry
 
 logger = logging.getLogger("workkbot.mcp.discovery")
 
@@ -34,28 +35,33 @@ class McpDiscoveryService:
         """
         discovered_tools: List[Dict[str, Any]] = []
 
-        if provider == "google_workspace":
-            services = ["calendar", "gmail", "drive", "docs", "sheets", "slides", "chat", "people"]
-            for service in services:
-                headers = {"X-Upstream-Authorization": f"Bearer {access_token}"}
-                try:
-                    server_tools = await google_mcp_client.list_tools(service, headers)
-                    for t in server_tools:
-                        raw_name = t.get("name", "")
-                        clean_name = raw_name.replace(".", "_")
-                        schema = t.get("inputSchema", {"type": "object", "properties": {}})
-                        from src.mcp.google_tools import strip_schema_descriptions
-                        clean_schema = strip_schema_descriptions(schema)
-                        discovered_tools.append({
-                            "name": clean_name,
-                            "original_name": raw_name,
-                            "service": service,
-                            "provider": provider,
-                            "description": "",
-                            "inputSchema": clean_schema,
-                        })
-                except Exception as e:
-                    logger.debug("Discovery on service %s failed: %s", service, e)
+        adapter = connector_registry.get(provider)
+        services = adapter.get_mcp_services() if adapter else ["default"]
+
+        for service in services:
+            headers = {"X-Upstream-Authorization": f"Bearer {access_token}"}
+            try:
+                server_tools = await google_mcp_client.list_tools(
+                    service=service,
+                    delegated_headers=headers,
+                    provider=provider,
+                )
+                for t in server_tools:
+                    raw_name = t.get("name", "")
+                    clean_name = raw_name.replace(".", "_")
+                    schema = t.get("inputSchema", {"type": "object", "properties": {}})
+                    from src.mcp.tools import strip_schema_descriptions
+                    clean_schema = strip_schema_descriptions(schema)
+                    discovered_tools.append({
+                        "name": clean_name,
+                        "original_name": raw_name,
+                        "service": service,
+                        "provider": provider,
+                        "description": "",
+                        "inputSchema": clean_schema,
+                    })
+            except Exception as e:
+                logger.debug("Discovery on provider %s service %s failed: %s", provider, service, e)
 
         logger.info(
             "Discovered %d MCP tools for user %s provider %s from connected MCP server",

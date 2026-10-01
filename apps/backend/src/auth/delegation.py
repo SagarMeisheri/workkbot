@@ -54,11 +54,17 @@ class TokenDelegationService:
         if not vault_secret_id:
             raise ValueError("Connection lacks associated Supabase Vault secret")
             
-        # Decrypt secret from Vault, checking auto-refresh for Google Workspace
-        from src.mcp.oauth_service import google_oauth_service
-        try:
-            access_token = await google_oauth_service.get_valid_access_token(vault_secret_id, user_id)
-        except Exception:
+        # Decrypt secret from Vault, checking auto-refresh via provider adapter
+        from src.mcp.registry import connector_registry
+        adapter = connector_registry.get(provider)
+        access_token = None
+        if adapter:
+            try:
+                access_token = await adapter.ensure_valid_token(vault_secret_id, user_id)
+            except Exception:
+                pass
+
+        if not access_token:
             secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
             if not secret_data or "access_token" not in secret_data:
                 raise ValueError("Failed to retrieve decrypted access token from Supabase Vault")

@@ -1,8 +1,9 @@
 """Dynamic MCP Tool & Toolset Implementation for Google ADK 2.0 (Spec 04 & Spec 05).
 
-Dynamically discovers and wraps tools from connected Remote MCP servers (Google Workspace),
-eliminating hardcoded tool definitions. Enforces parameter sanitization (CVE-2026-29791),
-in-chat Human-In-The-Loop (HITL) confirmations, Supabase Vault token retrieval, and immutable audit logs.
+Dynamically discovers and wraps tools from connected Remote MCP servers across all providers
+(Google Workspace, Zoho Workplace, Slack, Notion, GitHub, Jira, etc.), eliminating hardcoded tool definitions.
+Enforces parameter sanitization (CVE-2026-29791), in-chat Human-In-The-Loop (HITL) confirmations,
+Supabase Vault token retrieval, Tool Intent Routing (Tool RAG), and immutable audit logs.
 """
 from contextvars import ContextVar
 import datetime
@@ -19,21 +20,23 @@ from src.mcp.audit import tool_audit
 from src.mcp.hitl.user_confirmation import format_confirmation_request
 from src.mcp.client import google_mcp_client, AGENTGATEWAY_BASE_URL
 from src.mcp.discovery import mcp_discovery_service
+from src.mcp.registry import connector_registry
 
-logger = logging.getLogger("workkbot.mcp.google_tools")
+logger = logging.getLogger("workkbot.mcp.tools")
 
-# ContextVar storing active turn metadata: {"user_id", "org_id", "session_id", "auth_token", "state_delta"}
+# ContextVar storing active turn metadata: {"user_id", "org_id", "session_id", "auth_token", "state_delta", "turn_input"}
 current_turn_context: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "current_turn_context", default=None
 )
 
 
-async def _get_active_google_token() -> Optional[str]:
-    """Retrieves decrypted Google access token for current turn user from Supabase Vault."""
-    ctx = current_turn_context.get()
-    if not ctx:
-        return None
-    user_id = ctx.get("user_id")
+async def get_active_provider_token(provider: str, user_id: Optional[str] = None) -> Optional[str]:
+    """Retrieves decrypted access token for given provider from Supabase Vault, refreshing if needed."""
+    if not user_id:
+        ctx = current_turn_context.get()
+        if not ctx:
+            return None
+        user_id = ctx.get("user_id")
     if not user_id:
         return None
 
@@ -45,7 +48,7 @@ async def _get_active_google_token() -> Optional[str]:
             rpc_res = client.rpc("get_user_mcp_connections", {"p_user_id": user_id}).execute()
             if rpc_res.data:
                 for c in rpc_res.data:
-                    if c.get("provider") == "google_workspace":
+                    if c.get("provider") == provider:
                         vault_secret_id = c.get("vault_secret_id")
                         break
         except Exception:
@@ -54,7 +57,7 @@ async def _get_active_google_token() -> Optional[str]:
     # 2. Check local fallback store
     if not vault_secret_id:
         for conn in _local_db.get("mcp_connections", []):
-            if conn.get("user_id") == user_id and conn.get("provider") == "google_workspace" and conn.get("status") == "active":
+            if conn.get("user_id") == user_id and conn.get("provider") == provider and conn.get("status") == "active":
                 vault_secret_id = conn.get("vault_secret_id")
                 break
 
@@ -63,26 +66,29 @@ async def _get_active_google_token() -> Optional[str]:
     if vault_secret_id:
         secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
 
-    # 4. Fallback: Lookup by canonical secret name if vault_secret_id was stale or missing
+    # 4. Fallback by canonical secret name if vault_secret_id was stale or missing
     if not secret_data:
-        secret_name = f"mcp_token_{user_id}_google_workspace"
+        secret_name = f"mcp_token_{user_id}_{provider}"
         secret_data = supabase_admin.retrieve_vault_secret_by_name(secret_name)
 
     if not secret_data:
-        logger.warning("No vault secret found for user %s google_workspace", user_id)
+        logger.warning("No vault secret found for user %s provider %s", user_id, provider)
         return None
 
-    # Check auto-refresh if token near expiration
-    from src.mcp.oauth_service import google_oauth_service
-    try:
-        if vault_secret_id:
-            refreshed = await google_oauth_service.get_valid_access_token(vault_secret_id, user_id)
-            if refreshed:
-                return refreshed
-    except Exception as e:
-        logger.debug("Token refresh check returned: %s", e)
+    # Check auto-refresh if token near expiration via provider adapter
+    adapter = connector_registry.get(provider)
+    if adapter and vault_secret_id:
+        try:
+            return await adapter.ensure_valid_token(vault_secret_id, user_id)
+        except Exception as e:
+            logger.debug("Token refresh returned: %s", e)
 
     return secret_data.get("access_token")
+
+
+async def _get_active_google_token() -> Optional[str]:
+    """Backward-compatible helper retrieving Google Workspace access token."""
+    return await get_active_provider_token("google_workspace")
 
 
 def strip_schema_descriptions(schema: Any) -> Any:
@@ -96,6 +102,71 @@ def strip_schema_descriptions(schema: Any) -> Any:
     elif isinstance(schema, list):
         return [strip_schema_descriptions(item) for item in schema]
     return schema
+
+
+class ToolIntentRouter:
+    """Sub-selects relevant tools based on user prompt and turn context to prevent prompt bloat (>25 tools)."""
+
+    KEYWORD_MAPPINGS = {
+        "gmail": ["email", "mail", "gmail", "inbox", "draft", "message", "send"],
+        "calendar": ["calendar", "meeting", "event", "schedule", "reschedule", "invite", "time"],
+        "drive": ["drive", "file", "folder", "document", "upload", "download"],
+        "docs": ["doc", "document", "notes", "write", "summary"],
+        "sheets": ["sheet", "spreadsheet", "csv", "row", "column", "formula", "cell", "data"],
+        "slides": ["slide", "presentation", "deck", "powerpoint"],
+        "chat": ["chat", "space", "message", "channel"],
+        "people": ["contact", "person", "email", "directory", "colleague"],
+        "zoho_workplace": ["zoho", "invoice", "gst", "bill", "tax", "lead", "crm", "customer", "vendor"],
+        "books": ["invoice", "bill", "gst", "accounting", "ledger", "payment"],
+        "crm": ["crm", "lead", "deal", "contact", "pipeline"],
+        "slack": ["slack", "channel", "ping", "message", "dm", "workspace"],
+        "notion": ["notion", "wiki", "page", "database", "workspace"],
+        "atlassian": ["jira", "ticket", "sprint", "issue", "bug", "confluence"],
+        "hubspot": ["hubspot", "deal", "contact", "marketing", "campaign"],
+        "github": ["github", "pr", "pull request", "commit", "repo", "repository", "issue", "code"],
+    }
+
+    def filter_tools(self, tools: List[Dict[str, Any]], query: str, max_tools: int = 12) -> List[Dict[str, Any]]:
+        """Selects top matching tools if total count > 25, otherwise returns all tools."""
+        if len(tools) <= 25:
+            return tools
+
+        query_lower = query.lower() if query else ""
+        scored_tools = []
+        for t in tools:
+            score = 0
+            provider = t.get("provider", "").lower()
+            service = t.get("service", "").lower()
+            name = t.get("name", "").lower()
+
+            # Direct name/provider mention
+            if provider and provider in query_lower:
+                score += 10
+            if service and service in query_lower:
+                score += 8
+            if name and name in query_lower:
+                score += 15
+
+            # Keyword heuristic match
+            for key, kw_list in self.KEYWORD_MAPPINGS.items():
+                if key in (provider, service):
+                    for kw in kw_list:
+                        if kw in query_lower:
+                            score += 4
+
+            scored_tools.append((score, t))
+
+        # Sort by score descending
+        scored_tools.sort(key=lambda x: x[0], reverse=True)
+        selected = [t for score, t in scored_tools if score > 0][:max_tools]
+        if not selected:
+            # Fallback to general/first max_tools if no specific keyword matched
+            selected = [t for _, t in scored_tools[:max_tools]]
+
+        return selected
+
+
+tool_intent_router = ToolIntentRouter()
 
 
 try:
@@ -115,7 +186,6 @@ try:
             service: str,
             provider: str = "google_workspace",
         ):
-            # Omit tool description from the agent prompt to avoid prompt bloat, but preserve for classifier (VULN-09 Defense)
             super().__init__(name=name, description="")
             self.original_name = original_name
             self.tool_description = description
@@ -137,6 +207,7 @@ try:
             user_id = ctx.get("user_id", "unknown")
             org_id = ctx.get("org_id", "unknown")
             session_id = ctx.get("session_id", "unknown")
+
             # 0. Enforce maximum 2 tool calls limit per conversational turn
             tool_call_count = ctx.get("tool_call_count", 0)
             if tool_call_count >= 2:
@@ -164,7 +235,6 @@ try:
 
             is_confirmed = False
             if confirmed_tool in (self.name, self.original_name):
-                # If confirmation_hash was supplied by client, verify parameter integrity
                 if confirmed_hash:
                     is_confirmed = (confirmed_hash == args_hash)
                 else:
@@ -189,15 +259,15 @@ try:
                     "confirmation_request": challenge.to_dict(),
                 }
 
-            # 3. Resolve user credentials from Supabase Vault
-            token = await _get_active_google_token()
+            # 3. Resolve user credentials from Supabase Vault for this tool's provider
+            token = await get_active_provider_token(self.provider, user_id)
             if not token:
                 return {
                     "status": "not_connected",
                     "message": f"{self.provider} is not connected yet. Please connect via Connectors Hub.",
                 }
 
-            # 4. Execute strictly through MCP via google_mcp_client
+            # 4. Execute through McpGatewayClient with provider attribution
             delegated_headers = {
                 "X-Upstream-Authorization": f"Bearer {token}",
                 "Authorization": f"Bearer {token}",
@@ -211,10 +281,9 @@ try:
                 org_id=org_id,
                 session_id=session_id,
                 confirmation_granted=is_confirmed,
+                provider=self.provider,
             )
             return result
-
-
 
     class DynamicMcpToolset(BaseToolset):
         """ADK BaseToolset dynamically yielding discovered tools for active connections."""
@@ -234,8 +303,12 @@ try:
             if not discovered_specs:
                 return []
 
+            # Apply Tool Intent Router if tool count > 25
+            turn_input = ctx.get("turn_input") or ctx.get("user_message") or ""
+            selected_specs = tool_intent_router.filter_tools(discovered_specs, turn_input)
+
             tools: List[BaseTool] = []
-            for spec in discovered_specs:
+            for spec in selected_specs:
                 tools.append(
                     DynamicMcpTool(
                         name=spec["name"],
@@ -247,10 +320,13 @@ try:
                     )
                 )
 
-            logger.info("DynamicMcpToolset yielded %d active tools for user %s from connected MCP servers", len(tools), user_id)
+            logger.info(
+                "DynamicMcpToolset yielded %d active tools (out of %d discovered) for user %s",
+                len(tools),
+                len(discovered_specs),
+                user_id,
+            )
             return tools
-
-
 
 except ImportError:
     # Fallback placeholders when google-adk is not present

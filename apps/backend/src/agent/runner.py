@@ -94,7 +94,7 @@ class AdkRunnerSingleton:
         run_config = RunConfig(streaming_mode=StreamingMode.SSE, max_llm_calls=3)
 
         # 4. Set turn context for dynamic MCP tools resolution
-        from src.mcp.google_tools import current_turn_context
+        from src.mcp.tools import current_turn_context
         turn_ctx = {
             "user_id": user_id,
             "org_id": org_id,

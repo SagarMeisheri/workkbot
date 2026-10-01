@@ -173,53 +173,10 @@ async def get_connector_oauth_url(
     """Generates provider-specific authorization URL with tamper-proof HMAC state."""
     state = _generate_oauth_state(current_user.id, current_user.org_id, provider)
     
-    if provider == "google_workspace":
-        # Scoped down to least privilege (VULN-06 Defense): drive.file & drive.readonly instead of full drive
-        scopes = (
-            "openid email profile "
-            "https://www.googleapis.com/auth/gmail.readonly "
-            "https://www.googleapis.com/auth/gmail.compose "
-            "https://www.googleapis.com/auth/gmail.modify "
-            "https://www.googleapis.com/auth/drive.file "
-            "https://www.googleapis.com/auth/drive.readonly "
-            "https://www.googleapis.com/auth/documents "
-            "https://www.googleapis.com/auth/documents.readonly "
-            "https://www.googleapis.com/auth/spreadsheets "
-            "https://www.googleapis.com/auth/spreadsheets.readonly "
-            "https://www.googleapis.com/auth/presentations "
-            "https://www.googleapis.com/auth/presentations.readonly "
-            "https://www.googleapis.com/auth/calendar "
-            "https://www.googleapis.com/auth/calendar.events "
-            "https://www.googleapis.com/auth/calendar.calendarlist.readonly "
-            "https://www.googleapis.com/auth/contacts.readonly "
-            "https://www.googleapis.com/auth/directory.readonly "
-            "https://www.googleapis.com/auth/chat.spaces.readonly "
-            "https://www.googleapis.com/auth/chat.messages.readonly"
-        )
-        url = (
-            f"https://accounts.google.com/o/oauth2/v2/auth?"
-            f"client_id={settings.GOOGLE_CLIENT_ID}&"
-            f"redirect_uri=http://localhost:8000/api/v1/auth/connectors/oauth/callback&"
-            f"response_type=code&"
-            f"scope={scopes}&"
-            f"access_type=offline&"
-            f"prompt=consent&"
-            f"state={state}"
-        )
-    elif provider == "zoho_workplace":
-        scopes = "ZohoBooks.invoices.READ,ZohoCRM.modules.leads.READ"
-        url = (
-            f"{settings.ZOHO_ACCOUNTS_URL}/oauth/v2/auth?"
-            f"client_id={settings.ZOHO_CLIENT_ID}&"
-            f"redirect_uri=http://localhost:8000/api/v1/auth/connectors/oauth/callback&"
-            f"response_type=code&"
-            f"scope={scopes}&"
-            f"access_type=offline&"
-            f"prompt=consent&"
-            f"state={state}"
-        )
-    else:
-        url = f"https://auth.workkbot.in/connect/{provider}?state={state}"
+    from src.mcp.registry import connector_registry
+    adapter = connector_registry.get(provider)
+    redirect_uri = "http://localhost:8000/api/v1/auth/connectors/oauth/callback"
+    url = adapter.build_authorize_url(state=state, redirect_uri=redirect_uri)
 
     return OAuthAuthorizeResponse(
         authorization_url=url,
@@ -243,52 +200,27 @@ async def connector_oauth_callback(
     Exchanges authorization code for tokens, seals in Supabase Vault (pgsodium),
     and records connection in public.mcp_connections.
     """
-    # Exchange authorization code for connector credentials
-    if payload.provider == "google_workspace":
-        from src.mcp.oauth_service import google_oauth_service
-        try:
-            token_payload = await google_oauth_service.exchange_code_for_tokens(
-                code=payload.code,
-                redirect_uri="http://localhost:8000/api/v1/auth/connectors/oauth/callback",
-            )
-        except Exception as e:
-            logger.warning("Google exchange fallback: %s", e)
-            token_payload = {
-                "access_token": f"mcp_access_{payload.provider}_{uuid.uuid4().hex}",
-                "refresh_token": f"mcp_refresh_{payload.provider}_{uuid.uuid4().hex}",
-                "expires_in": 3600,
-                "token_type": "Bearer",
-            }
-    else:
+    # Exchange authorization code for connector credentials via provider adapter
+    from src.mcp.registry import connector_registry
+    adapter = connector_registry.get(payload.provider)
+    redirect_uri = "http://localhost:8000/api/v1/auth/connectors/oauth/callback"
+
+    try:
+        token_payload = await adapter.exchange_code(
+            code=payload.code,
+            redirect_uri=redirect_uri,
+        )
+    except Exception as e:
+        logger.warning("OAuth exchange fallback for %s: %s", payload.provider, e)
         token_payload = {
             "access_token": f"mcp_access_{payload.provider}_{uuid.uuid4().hex}",
             "refresh_token": f"mcp_refresh_{payload.provider}_{uuid.uuid4().hex}",
             "expires_in": 3600,
             "token_type": "Bearer",
         }
-    
-    default_scopes = {
-        "google_workspace": [
-            "gmail.readonly",
-            "gmail.compose",
-            "drive.readonly",
-            "drive.file",
-            "documents",
-            "spreadsheets",
-            "calendar.events",
-        ],
-        "zoho_workplace": ["ZohoBooks.invoices.READ", "ZohoCRM.modules.leads.READ"],
-    }.get(payload.provider, ["read", "write"])
 
     raw_scope = token_payload.get("scope", "")
-    if isinstance(raw_scope, str) and raw_scope:
-        actual_scopes = [
-            s.replace("https://www.googleapis.com/auth/", "")
-            for s in raw_scope.split()
-            if not s.startswith("openid") and not s.startswith("email") and not s.startswith("profile")
-        ]
-    else:
-        actual_scopes = default_scopes
+    actual_scopes = adapter.clean_scopes(raw_scope)
 
     # 1. Seal token in Supabase Vault (pgsodium)
     vault_secret_id = supabase_admin.store_vault_secret(
@@ -366,7 +298,7 @@ async def connector_oauth_callback(
         user_id=current_user.id,
         org_id=current_user.org_id,
         provider=payload.provider,
-        scopes=default_scopes,
+        scopes=actual_scopes,
         status="active",
         updated_at=now_str,
     )
@@ -588,7 +520,7 @@ async def disconnect_connector(
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Disconnects connector, revokes token upstream at provider, and purges Vault secret."""
-    from src.mcp.oauth_service import google_oauth_service
+    from src.mcp.registry import connector_registry
     target_vault_id = None
     target_provider = None
 
@@ -613,7 +545,8 @@ async def disconnect_connector(
                         # Prioritize revoking refresh_token to revoke all persistent offline access (VULN-07 Defense)
                         token_to_revoke = secret_data.get("refresh_token") or secret_data.get("access_token")
                         if token_to_revoke:
-                            await google_oauth_service.revoke_token(token_to_revoke)
+                            adapter = connector_registry.get(target_provider or "google_workspace")
+                            await adapter.revoke_token(token_to_revoke)
                     supabase_admin.delete_vault_secret(target_vault_id)
                 client.table("mcp_connections").delete().eq("id", record["id"]).execute()
         except Exception as e:
@@ -627,12 +560,14 @@ async def disconnect_connector(
 
     if target:
         vault_secret_id = target.get("vault_secret_id")
+        provider_name = target.get("provider", "google_workspace")
         if vault_secret_id:
             secret_data = supabase_admin.retrieve_vault_secret(vault_secret_id)
             if secret_data:
                 token_to_revoke = secret_data.get("refresh_token") or secret_data.get("access_token")
                 if token_to_revoke:
-                    await google_oauth_service.revoke_token(token_to_revoke)
+                    adapter = connector_registry.get(provider_name)
+                    await adapter.revoke_token(token_to_revoke)
             supabase_admin.delete_vault_secret(vault_secret_id)
         _local_db["mcp_connections"] = [
             c for c in _local_db["mcp_connections"] 

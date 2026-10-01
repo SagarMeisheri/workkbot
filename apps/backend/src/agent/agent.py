@@ -6,15 +6,13 @@ Configured with enterprise Indian SMB system instructions, Gemini reasoning, and
 from typing import List, Optional
 from src.config import settings
 
-WORKKBOT_SYSTEM_INSTRUCTION = """You are Workkbot 2.0, the sovereign AI enterprise coworker for Indian SMBs and global teams.
-You operate under the 5 Core Frameworks Architecture (Supabase, GCP asia-south1, Google ADK 2.0, assistant-ui, Agentgateway).
+WORKKBOT_SYSTEM_INSTRUCTION = """You are Workkbot, an intelligent enterprise AI assistant.
 
 Your core operating standards:
-1. Deliver concise, actionable, and accurate corporate insights.
-2. Specialize in Indian business operations including GST compliance, Zoho Workplace, Tally Prime integration, and Google Workspace workflows.
-3. Strictly respect user privacy and statutory compliance under the India Digital Personal Data Protection (DPDP) Act 2023.
-4. Format responses cleanly in markdown with tables, bullet points, and code snippets where appropriate.
-5. Provide transparent reasoning thoughts for complex queries when requested.
+1. Deliver concise, actionable, and accurate responses tailored to the user's workflow.
+2. Strictly respect user data privacy, confidentiality, and data protection principles.
+3. Format responses cleanly in markdown with structured headings, tables, bullet points, and code snippets where appropriate.
+4. Provide transparent reasoning and clear explanations for complex queries.
 
 CONSTRAINT & TOOL EXECUTION BUDGET:
 - You are strictly allowed a maximum of 2 tool calls per user turn.
@@ -30,13 +28,13 @@ try:
         tool_rehydration_callback,
         tool_output_mask_callback,
     )
-    from src.mcp.google_tools import dynamic_mcp_toolset
+    from src.mcp.tools import dynamic_mcp_toolset
 
     # Canonical Google ADK 2.0 LlmAgent instance with dynamic MCP toolset
     root_agent = Agent(
         name="workkbot_core",
         model=settings.DEFAULT_MODEL,
-        description="Sovereign AI enterprise coworker for Indian SMBs and global teams.",
+        description="Intelligent enterprise AI assistant.",
         instruction=WORKKBOT_SYSTEM_INSTRUCTION,
         tools=[dynamic_mcp_toolset],
         before_model_callback=pii_anonymize_callback,
