@@ -133,6 +133,8 @@ class ToolIntentRouter:
         "atlassian": ["jira", "ticket", "sprint", "issue", "bug", "confluence"],
         "hubspot": ["hubspot", "deal", "contact", "marketing", "campaign"],
         "github": ["github", "pr", "pull request", "commit", "repo", "repository", "issue", "code"],
+        "browser": ["browser", "web", "website", "navigate", "page", "click", "fill", "form", "portal", "dashboard", "open", "url"],
+        "universal_browser": ["browser", "web", "website", "navigate", "page", "click", "fill", "form", "portal", "dashboard", "open", "url"],
     }
 
     def filter_tools(self, tools: List[Dict[str, Any]], query: str, max_tools: int = 12) -> List[Dict[str, Any]]:
@@ -217,13 +219,13 @@ try:
             org_id = ctx.get("org_id", "unknown")
             session_id = ctx.get("session_id", "unknown")
 
-            # 0. Enforce maximum 2 tool calls limit per conversational turn
+            # 0. Enforce maximum 10 tool calls limit per conversational turn
             tool_call_count = ctx.get("tool_call_count", 0)
-            if tool_call_count >= 2:
-                logger.info("Cap reached: maximum 2 tool calls per turn for session %s", session_id)
+            if tool_call_count >= 10:
+                logger.info("Cap reached: maximum 10 tool calls per turn for session %s", session_id)
                 return {
                     "status": "tool_limit_reached",
-                    "message": "Maximum 2 tool calls limit reached for this turn. Synthesize your final response with the data retrieved so far.",
+                    "message": "Maximum 10 tool calls limit reached for this turn. Synthesize your final response with the data retrieved so far.",
                 }
             ctx["tool_call_count"] = tool_call_count + 1
 
@@ -311,6 +313,28 @@ try:
                         ),
                     }
 
+            # 2c. Special handler for Universal Ref-Based Browser CDP tools
+            if self.service == "universal_browser":
+                from src.vm.sandbox_manager import desktop_manager
+                from src.vm.universal_browser import UniversalBrowserSession
+                sandbox, sid, stream_url = desktop_manager.get_or_create_sandbox(
+                    user_id=user_id,
+                    org_id=org_id,
+                    session_id=session_id,
+                )
+                ub = UniversalBrowserSession(sandbox)
+                if self.name == "browser_navigate":
+                    res = await ub.navigate(sanitized_args.get("url", ""))
+                    return {"status": "success", "result": res, "stream_url": stream_url, "session_id": sid}
+                elif self.name == "browser_snapshot":
+                    return await ub.snapshot()
+                elif self.name == "browser_click":
+                    return await ub.click(sanitized_args.get("target", ""))
+                elif self.name == "browser_fill":
+                    return await ub.fill(sanitized_args.get("target", ""), str(sanitized_args.get("value", "")))
+                elif self.name == "browser_press_key":
+                    return await ub.press_key(sanitized_args.get("key", "Enter"))
+
             # 3. Resolve user credentials from Supabase Vault for this tool's provider
             token = await get_active_provider_token(self.provider, user_id)
             if not token:
@@ -350,30 +374,96 @@ try:
             if not user_id and readonly_context:
                 user_id = getattr(readonly_context, "user_id", None) or getattr(getattr(readonly_context, "session", None), "user_id", None)
 
-            # Ensure user_id fallback so tools are never dropped due to context loss
-            user_id = user_id or getattr(self, "_last_user_id", None) or "00000000-0000-0000-0000-000000000001"
-            self._last_user_id = user_id
+            if not user_id:
+                return []
 
-            # 1. Native Autonomous E2B Desktop Computer Use Tool spec for Zoho Books
-            vm_specs = [{
-                "name": "zoho_books_add_item",
-                "original_name": "zoho_books_add_item",
-                "description": "Add a new inventory or service item into Zoho Books catalog via autonomous E2B Desktop Computer Use.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "description": "Name of the item, e.g. Royal Basmati Rice 5kg"},
-                        "type": {"type": "string", "enum": ["Goods", "Service"], "description": "Type of item"},
-                        "unit": {"type": "string", "description": "Unit of measurement, e.g. bag, pcs, kg, box"},
-                        "selling_price": {"type": "number", "description": "Selling Price in INR"},
-                        "cost_price": {"type": "number", "description": "Cost Price in INR"},
-                        "description": {"type": "string", "description": "Description of the item"}
+            # 1. Native Universal Browser CDP Tool specs and Zoho Books
+            vm_specs = [
+                {
+                    "name": "browser_navigate",
+                    "original_name": "browser_navigate",
+                    "description": "Navigate the cloud browser to any website (e.g. Zoho Books, Vyapar, GST Portal, Shopify, Stripe, etc.).",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "URL to navigate to, e.g. https://books.zoho.in/app#/items/new"}
+                        },
+                        "required": ["url"]
                     },
-                    "required": ["name", "selling_price"]
+                    "service": "universal_browser",
+                    "provider": "browser",
                 },
-                "service": "zohobooks_vm",
-                "provider": "zohobooks",
-            }]
+                {
+                    "name": "browser_snapshot",
+                    "original_name": "browser_snapshot",
+                    "description": "Take a semantic accessibility snapshot of the current page. Returns interactive elements with reference IDs [ref=e1], labels, and types so you can interact with them without vision/screenshots.",
+                    "inputSchema": {"type": "object", "properties": {}},
+                    "service": "universal_browser",
+                    "provider": "browser",
+                },
+                {
+                    "name": "browser_click",
+                    "original_name": "browser_click",
+                    "description": "Click an element on the active web page by its reference ID (e.g. 'e1') or visible label.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "target": {"type": "string", "description": "The element ref (e.g. 'e1') or visible label"}
+                        },
+                        "required": ["target"]
+                    },
+                    "service": "universal_browser",
+                    "provider": "browser",
+                },
+                {
+                    "name": "browser_fill",
+                    "original_name": "browser_fill",
+                    "description": "Fill text into an input field or textarea by its reference ID (e.g. 'e4') or label.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "target": {"type": "string", "description": "The element ref (e.g. 'e4') or label"},
+                            "value": {"type": "string", "description": "The text value to enter"}
+                        },
+                        "required": ["target", "value"]
+                    },
+                    "service": "universal_browser",
+                    "provider": "browser",
+                },
+                {
+                    "name": "browser_press_key",
+                    "original_name": "browser_press_key",
+                    "description": "Press a keyboard key on the active web page, e.g. 'Enter', 'Tab', 'Escape'.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string", "description": "Keyboard key to press, e.g. 'Enter'"}
+                        },
+                        "required": ["key"]
+                    },
+                    "service": "universal_browser",
+                    "provider": "browser",
+                },
+                {
+                    "name": "zoho_books_add_item",
+                    "original_name": "zoho_books_add_item",
+                    "description": "Add a new inventory or service item into Zoho Books catalog via autonomous Desktop Computer Use.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Name of the item, e.g. Royal Basmati Rice 5kg"},
+                            "type": {"type": "string", "enum": ["Goods", "Service"], "description": "Type of item"},
+                            "unit": {"type": "string", "description": "Unit of measurement, e.g. bag, pcs, kg, box"},
+                            "selling_price": {"type": "number", "description": "Selling Price in INR"},
+                            "cost_price": {"type": "number", "description": "Cost Price in INR"},
+                            "description": {"type": "string", "description": "Description of the item"}
+                        },
+                        "required": ["name", "selling_price"]
+                    },
+                    "service": "zohobooks_vm",
+                    "provider": "zohobooks",
+                },
+            ]
 
             # 2. Retrieve discovered tools for user's active connections
             discovered_specs = mcp_discovery_service.get_discovered_tools(user_id=user_id) or []

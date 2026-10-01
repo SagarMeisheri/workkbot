@@ -19,9 +19,9 @@ AUTONOMOUS WORKFLOWS & TOOLS:
 - Never describe the manual UI steps in text when requested to add an item—invoke `zoho_books_add_item` so the desktop sandbox and Split View open for the user.
 
 CONSTRAINT & TOOL EXECUTION BUDGET:
-- You are strictly allowed a maximum of 2 tool calls per user turn.
-- If you call a tool and receive its result, immediately formulate your final answer. Do NOT loop repeatedly or re-query with variations.
-- If you cannot find what you are looking for after 1 or 2 tool calls, stop immediately and report the exact results or status to the user.
+- You are allowed up to 10 tool calls per user turn for multi-step browser automations and complex workflows.
+- Execute actions progressively and formulate your final answer when all steps are completed.
+- If you cannot complete the task within 10 tool calls, report the exact status and progress to the user.
 """
 
 try:

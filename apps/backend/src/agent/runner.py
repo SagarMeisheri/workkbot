@@ -90,8 +90,8 @@ class AdkRunnerSingleton:
         )
 
         model_event_id = f"evt_{uuid.uuid4().hex[:12]}_m"
-        # Cap total LLM calls to 3 (max 2 tool execution cycles + 1 final answer)
-        run_config = RunConfig(streaming_mode=StreamingMode.SSE, max_llm_calls=3)
+        # Cap total LLM calls to 11 (max 10 tool execution cycles + 1 final answer)
+        run_config = RunConfig(streaming_mode=StreamingMode.SSE, max_llm_calls=11)
 
         # 4. Set turn context for dynamic MCP tools resolution
         from src.mcp.tools import current_turn_context

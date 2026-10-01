@@ -126,13 +126,13 @@ async def test_dynamic_tool_hitl_enforcement():
 
 @pytest.mark.asyncio
 async def test_dynamic_tool_budget_limit_per_turn():
-    """Verifies that dynamic tools enforce the 2-call maximum execution budget per turn."""
+    """Verifies that dynamic tools enforce the 10-call maximum execution budget per turn."""
     user_id = "test-budget-user"
     token = current_turn_context.set({
         "user_id": user_id,
         "org_id": "test-org",
         "session_id": "sess-budget",
-        "tool_call_count": 2,  # Already at limit of 2 calls
+        "tool_call_count": 10,  # Already at limit of 10 calls
     })
 
     try:
@@ -147,6 +147,6 @@ async def test_dynamic_tool_budget_limit_per_turn():
 
         res = await tool.run_async(args={"query": "team sync"})
         assert res.get("status") == "tool_limit_reached"
-        assert "Maximum 2 tool calls limit reached" in res.get("message", "")
+        assert "Maximum 10 tool calls limit reached" in res.get("message", "")
     finally:
         current_turn_context.reset(token)

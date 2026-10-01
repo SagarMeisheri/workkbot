@@ -1,119 +1,119 @@
-"""Tests for Dynamic Computer Use Vision Loop in Zoho Books (Spec 11).
+"""Tests for Autonomous Zoho Books Operator delegating to Universal Browser (Spec 11).
 
-Validates that the operator relies on real dynamic vision tool calls from Gemini
-rather than hardcoded coordinates, and properly drives the E2B sandbox mouse/keyboard primitives.
+Validates:
+1. Zero hardcoded scraping scripts - delegates to UniversalBrowserSession.
+2. Playwright locators execute fill, click, select directly on the cloud browser page.
+3. Save button click over Kernel CDP.
+4. Settings API key verification.
 """
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-from src.vm.zoho_books_operator import DynamicComputerUseAgent, ZohoBooksItemOperator
+from unittest.mock import MagicMock, AsyncMock
+from src.vm.zoho_books_operator import ZohoBooksItemOperator, DynamicComputerUseAgent
 
 
-class MockSandbox:
+class MockCdpElement:
+    def __init__(self, key=""):
+        self.key = key
+        self.count = AsyncMock(return_value=1)
+        self.click = AsyncMock()
+        self.fill = AsyncMock()
+        self.dispatch_event = AsyncMock()
+
+
+class MockCdpPage:
+    """Mock Playwright Page connected over Kernel CDP."""
+
     def __init__(self):
-        self.clicks = []
-        self.typed_texts = []
-        self.pressed_keys = []
-        self.scrolls = []
-        self.drags = []
+        self.locators = {}
+        self.keyboard = MagicMock()
+        self.keyboard.press = AsyncMock()
+        self.url = "https://books.zoho.in/app#/items/new"
+        self.goto = AsyncMock()
+        self.wait_for_selector = AsyncMock()
 
-    def screenshot(self) -> bytes:
-        return b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\rIDATx\x9cc`\x00\x00\x00\x02\x00\x01H\xaf\xa4q\x00\x00\x00\x00IEND\xaeB`\x82"
+    def locator(self, selector):
+        if selector not in self.locators:
+            loc = MockCdpElement(selector)
+            loc.first = loc
+            self.locators[selector] = loc
+        return self.locators[selector]
 
-    def left_click(self, x: int, y: int):
-        self.clicks.append((x, y))
-
-    def write(self, text: str):
-        self.typed_texts.append(text)
-
-    def press(self, key: str):
-        self.pressed_keys.append(key)
-
-    def scroll(self, direction: str, ticks: int = 3):
-        self.scrolls.append((direction, ticks))
-
-    def drag(self, start: list, end: list):
-        self.drags.append((start, end))
+    async def evaluate(self, script):
+        return [
+            {"ref": "e1", "tag": "input", "role": "textbox", "label": "Item Name *", "value": ""},
+            {"ref": "e2", "tag": "input", "role": "radio", "label": "Goods", "checked": True},
+            {"ref": "e3", "tag": "input", "role": "textbox", "label": "Selling Price *", "value": ""},
+            {"ref": "e4", "tag": "input", "role": "textbox", "label": "Cost Price *", "value": ""},
+            {"ref": "e5", "tag": "button", "role": "button", "label": "Save", "value": ""},
+        ]
 
 
-@pytest.mark.asyncio
-async def test_dynamic_vision_loop_executes_actions():
-    """Verifies that the vision agent parses LLM function calls dynamically."""
-    sandbox = MockSandbox()
-    agent = DynamicComputerUseAgent(sandbox, gemini_api_key="test-key")
+class MockCdpSandbox:
+    """Mock KernelBrowserSession connected over CDP."""
 
-    # Mock candidate with function calls from Gemini vision reasoning
-    mock_fc_click = MagicMock()
-    mock_fc_click.name = "click"
-    mock_fc_click.args = {"x": 345, "y": 210, "reason": "Focus Name field"}
+    def __init__(self, page):
+        self._page = page
 
-    mock_fc_type = MagicMock()
-    mock_fc_type.name = "type_text"
-    mock_fc_type.args = {"text": "Basmati Rice 5kg", "reason": "Type item name"}
-
-    mock_fc_complete = MagicMock()
-    mock_fc_complete.name = "task_completed"
-    mock_fc_complete.args = {"summary": "Item name entered"}
-
-    part1 = MagicMock()
-    part1.function_call = mock_fc_click
-
-    part2 = MagicMock()
-    part2.function_call = mock_fc_type
-
-    part3 = MagicMock()
-    part3.function_call = mock_fc_complete
-
-    mock_resp1 = MagicMock()
-    mock_resp1.candidates = [MagicMock(content=MagicMock(parts=[part1, part2]))]
-
-    mock_resp2 = MagicMock()
-    mock_resp2.candidates = [MagicMock(content=MagicMock(parts=[part3]))]
-
-    with patch.object(agent.client.models, "generate_content", side_effect=[mock_resp1, mock_resp2]):
-        result = await agent.run_vision_loop(goal="Add item Basmati Rice 5kg", max_turns=5)
-
-    assert result["status"] == "awaiting_save_confirmation"
-    assert (345, 210) in sandbox.clicks
-    assert "Basmati Rice 5kg" in sandbox.typed_texts
+    async def get_page(self):
+        return self._page
 
 
 @pytest.mark.asyncio
-async def test_zoho_books_operator_delegation():
-    """Verifies that ZohoBooksItemOperator delegates to the dynamic vision loop."""
-    sandbox = MockSandbox()
+async def test_zoho_books_operator_cdp_form_fill():
+    """Verifies that ZohoBooksItemOperator fills the form via Universal Browser."""
+    page = MockCdpPage()
+    sandbox = MockCdpSandbox(page)
     operator = ZohoBooksItemOperator(sandbox)
 
     item_data = {
         "name": "Organic Honey 500g",
         "type": "Goods",
-        "unit": "jar",
         "selling_price": 350.0,
         "cost_price": 280.0,
-        "description": "Pure raw forest honey",
     }
 
-    mock_result = {
-        "status": "awaiting_save_confirmation",
-        "summary": "Filled Organic Honey 500g form",
-        "steps": 3,
-    }
-
-    with patch.object(operator.agent, "run_vision_loop", new_callable=AsyncMock) as mock_loop:
-        mock_loop.return_value = mock_result
-        res = await operator.fill_new_item_form(item_data)
+    res = await operator.fill_new_item_form(item_data)
 
     assert res["status"] == "awaiting_save_confirmation"
-    mock_loop.assert_called_once()
-    prompt_used = mock_loop.call_args.kwargs["goal"]
-    assert "Organic Honey 500g" in prompt_used
-    assert "350.0" in prompt_used
+    assert res["mode"] == "universal_ref_cdp"
+    assert res["steps"] >= 3
+
+    # Verify Playwright fill calls via stamped ref
+    name_loc = page.locators['[data-workkbot-ref="e1"]']
+    name_loc.fill.assert_called_with("Organic Honey 500g")
+
+    rate_loc = page.locators['[data-workkbot-ref="e3"]']
+    rate_loc.fill.assert_called_with("350.0")
 
 
-def test_e2b_api_key_configuration():
-    """Verifies that E2B_API_KEY is recognized in Settings and exported to os.environ."""
+@pytest.mark.asyncio
+async def test_zoho_books_operator_submit_save():
+    """Verifies that submit_save clicks the Save button via Universal Browser."""
+    page = MockCdpPage()
+    sandbox = MockCdpSandbox(page)
+    operator = ZohoBooksItemOperator(sandbox)
+
+    save_res = await operator.submit_save()
+    assert save_res["status"] == "saved"
+    assert save_res["action"] == "click"
+    assert save_res["target"] == "Save"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_computer_use_agent_delegation():
+    """Verifies backwards compatibility wrapper delegates to Universal Browser."""
+    page = MockCdpPage()
+    sandbox = MockCdpSandbox(page)
+    agent = DynamicComputerUseAgent(sandbox)
+
+    res = await agent.run_vision_loop("Add Basmati Rice")
+    assert res["status"] == "awaiting_save_confirmation"
+
+
+def test_kernel_and_e2b_api_key_configuration():
+    """Verifies that KERNEL_API_KEY is configured in Settings and exported."""
     import os
     from src.config import settings
-    assert hasattr(settings, "E2B_API_KEY")
-    assert settings.E2B_API_KEY != ""
-    assert os.environ.get("E2B_API_KEY") == settings.E2B_API_KEY
-
+    assert hasattr(settings, "KERNEL_API_KEY")
+    assert settings.KERNEL_API_KEY != ""
+    assert os.environ.get("KERNEL_API_KEY") == settings.KERNEL_API_KEY

@@ -51,6 +51,85 @@ class KernelBrowserSession:
                 self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
             return self._page
 
+    async def get_page(self) -> Page:
+        """Returns the active Playwright Page connected over CDP."""
+        return await self.ensure_connected()
+
+    async def async_accessibility_snapshot(self) -> Optional[Dict[str, Any]]:
+        """Returns the semantic accessibility tree snapshot over CDP."""
+        page = await self.ensure_connected()
+        try:
+            return await page.accessibility.snapshot()
+        except Exception as e:
+            logger.warning("Accessibility snapshot error: %s", e)
+            return None
+
+    async def async_extract_interactive_elements(self) -> list:
+        """
+        Lightweight CDP DOM extraction. Returns interactive form controls with their
+        labels, roles, names, placeholders, and current values without expensive screenshots.
+        """
+        page = await self.ensure_connected()
+        js_code = """
+        () => {
+            const results = [];
+            const selectors = 'input, select, textarea, button, [role="button"], [role="radio"], [role="combobox"], [role="checkbox"]';
+            const nodes = Array.from(document.querySelectorAll(selectors));
+            for (const el of nodes) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) continue;
+                const style = window.getComputedStyle(el);
+                if (style.visibility === 'hidden' || style.display === 'none') continue;
+
+                let labelText = '';
+                if (el.labels && el.labels.length > 0) {
+                    labelText = el.labels[0].innerText;
+                } else if (el.id) {
+                    const labelEl = document.querySelector(`label[for="${el.id}"]`);
+                    if (labelEl) labelText = labelEl.innerText;
+                }
+                if (!labelText) {
+                    const container = el.closest('.form-group, .row, tr, [class*="form-group"], [class*="field"]');
+                    if (container) {
+                        const lbl = container.querySelector('label, [class*="label"], [class*="title"]');
+                        if (lbl && lbl !== el) labelText = lbl.innerText;
+                    }
+                }
+                if (!labelText) {
+                    const parentLabel = el.closest('label');
+                    if (parentLabel) {
+                        labelText = parentLabel.innerText;
+                    } else if (el.parentElement) {
+                        const prev = el.parentElement.querySelector('label');
+                        if (prev) labelText = prev.innerText;
+                    }
+                }
+                if (!labelText) {
+                    labelText = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || el.name || '';
+                }
+
+                results.push({
+                    tag: el.tagName.toLowerCase(),
+                    type: el.type || '',
+                    role: el.getAttribute('role') || el.type || el.tagName.toLowerCase(),
+                    id: el.id || '',
+                    name: el.name || '',
+                    label: labelText.replace(/[\\r\\n\\t]+/g, ' ').trim().slice(0, 100),
+                    placeholder: el.getAttribute('placeholder') || '',
+                    value: el.value || '',
+                    checked: el.checked || false,
+                    disabled: el.disabled || false
+                });
+            }
+            return results;
+        }
+        """
+        try:
+            return await page.evaluate(js_code)
+        except Exception as e:
+            logger.warning("DOM interactive element extraction error: %s", e)
+            return []
+
     async def async_screenshot(self) -> bytes:
         """Captures page screenshot as PNG bytes directly over CDP."""
         page = await self.ensure_connected()

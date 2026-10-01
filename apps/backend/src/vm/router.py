@@ -24,6 +24,7 @@ class StartVMSessionRequest(BaseModel):
 
 class ConfirmLoginRequest(BaseModel):
     session_id: Optional[str] = None
+    pending_item: Optional[Dict[str, Any]] = None
 
 
 class ConfirmSaveRequest(BaseModel):
@@ -108,13 +109,26 @@ async def confirm_login(
     desktop_manager.mark_logged_in(session_id)
     sandbox = desktop_manager._active_sandboxes.get(session_id)
 
-    pending_item = desktop_manager.get_pending_item(session_id)
+    if payload.pending_item:
+        desktop_manager.set_pending_item(session_id, payload.pending_item)
+
+    pending_item = desktop_manager.get_pending_item(session_id) or payload.pending_item
     form_result = None
+
+    logger.info(
+        "confirm_login invoked for session=%s user=%s: sandbox_active=%s, pending_item=%s",
+        session_id,
+        current_user.id,
+        sandbox is not None,
+        pending_item,
+    )
 
     if pending_item and sandbox:
         operator = ZohoBooksItemOperator(sandbox)
         await operator.navigate_to_new_item_page()
         form_result = await operator.fill_new_item_form(pending_item)
+    elif not pending_item:
+        logger.warning("confirm_login: No pending item found for session %s", session_id)
 
     return {
         "success": True,

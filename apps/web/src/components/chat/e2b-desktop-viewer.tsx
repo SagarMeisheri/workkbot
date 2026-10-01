@@ -43,7 +43,10 @@ export function E2BDesktopViewer({
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ session_id: sessionId }),
+        body: JSON.stringify({
+          session_id: sessionId,
+          pending_item: pendingItem,
+        }),
       });
 
       if (!res.ok) {
