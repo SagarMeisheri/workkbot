@@ -46,6 +46,7 @@ async def test_kernel_browser_manager_provisioning_success():
         assert session.session_id == "sess_kernel_live_999"
         assert session.cdp_ws_url == "wss://prod-jfk.kernel.sh/cdp/sess_kernel_live_999"
         assert session.live_view_url == "https://prod-jfk.kernel.sh/live/sess_kernel_live_999"
+        assert session.telemetry_enabled is True
 
         mock_post.assert_called_once()
         args, kwargs = mock_post.call_args
@@ -53,6 +54,8 @@ async def test_kernel_browser_manager_provisioning_success():
         assert kwargs["headers"]["Authorization"] == "Bearer kernel_test_live_key_123"
         assert kwargs["json"]["stealth"] is True
         assert kwargs["json"]["region"] == "us-east"
+        assert kwargs["json"]["telemetry"]["browser"]["console"]["enabled"] is True
+        assert kwargs["json"]["telemetry"]["browser"]["network"]["enabled"] is True
 
 
 @pytest.mark.asyncio
@@ -97,6 +100,12 @@ async def test_flight_price_scraper_playwright_extraction():
         )
     )
     mock_manager.close_session = AsyncMock()
+    mock_manager.start_replay = AsyncMock(
+        return_value={"replay_id": "rep_123", "replay_view_url": "https://api.onkernel.com/replays/rep_123"}
+    )
+    mock_manager.stop_replay = AsyncMock(
+        return_value={"status": "stopped", "replay_view_url": "https://api.onkernel.com/replays/rep_123"}
+    )
 
     # Mock Playwright element items
     card_1 = MagicMock()
@@ -143,7 +152,8 @@ async def test_flight_price_scraper_playwright_extraction():
         assert result["destination"] == "DXB"
         assert result["flight_count"] == 2
         assert len(result["flights"]) == 2
-        assert result["max_tool_calls"] == 10
+        assert result["max_tool_calls"] == 20
+        assert result["replay_id"] == "rep_123"
 
         flight1 = result["flights"][0]
         assert flight1["airline"] == "IndiGo Airlines"
@@ -159,12 +169,14 @@ async def test_flight_price_scraper_playwright_extraction():
 
         assert result["screenshot_b64"] == base64.b64encode(b"fake_jpeg_bytes").decode("utf-8")
         mock_page.goto.assert_called_once()
+        mock_manager.start_replay.assert_called_once_with("real_cdp_session")
+        mock_manager.stop_replay.assert_called_once_with("real_cdp_session", "rep_123")
         mock_manager.close_session.assert_called_once_with("real_cdp_session")
 
 
 @pytest.mark.asyncio
-async def test_agentic_loop_max_10_tool_calls_limit():
-    """Verifies that the agentic browser loop enforces a strict limit of max 10 tool calls."""
+async def test_agentic_loop_max_tool_calls_limit():
+    """Verifies that the agentic browser loop enforces a strict limit of max 20 tool calls."""
     mock_manager = MagicMock(spec=KernelBrowserManager)
     mock_manager.create_session = AsyncMock(
         return_value=BrowserSession(
@@ -173,6 +185,8 @@ async def test_agentic_loop_max_10_tool_calls_limit():
         )
     )
     mock_manager.close_session = AsyncMock()
+    mock_manager.start_replay = AsyncMock(return_value=None)
+    mock_manager.stop_replay = AsyncMock(return_value=None)
 
     mock_elem = MagicMock()
     mock_elem.is_visible = AsyncMock(return_value=True)
@@ -210,12 +224,12 @@ async def test_agentic_loop_max_10_tool_calls_limit():
             return_value={"action": "click", "target": "button", "reason": "keep searching"}
         )
 
-        # Attempt to request 25 steps; scraper must strictly enforce MAX_TOOL_CALLS = 10
+        # Attempt to request 25 steps; scraper must strictly enforce MAX_TOOL_CALLS = 20
         result = await scraper.search_flights(origin="BOM", destination="DEL", max_tool_calls=25)
 
-        assert result["max_tool_calls"] == 10
-        assert result["tool_calls_count"] == 10
-        assert scraper._decide_next_action.call_count == 10
+        assert result["max_tool_calls"] == 20
+        assert result["tool_calls_count"] == 20
+        assert scraper._decide_next_action.call_count == 20
 
 
 @pytest.mark.asyncio
@@ -227,8 +241,8 @@ async def test_decide_next_action_exceeds_max_steps():
         destination="DEL",
         date="2026-10-10",
         dom_snapshot="",
-        step_number=11,
-        max_steps=10,
+        step_number=21,
+        max_steps=20,
     )
     assert decision["action"] == "done"
     assert "Reached maximum tool call limit" in decision["reason"]
@@ -353,3 +367,91 @@ async def test_kernel_browser_manager_close_all_on_shutdown():
     await manager.close_all_sessions()
 
     assert set(closed_sessions) == {"sess_1", "sess_2"}
+
+
+@pytest.mark.asyncio
+async def test_kernel_browser_manager_replays_start_and_stop():
+    """Tests start_replay and stop_replay API calls against Kernel."""
+    manager = KernelBrowserManager(api_key="test_key", base_url="https://api.onkernel.com")
+    manager.active_session = BrowserSession(
+        session_id="sess_replay_test",
+        cdp_ws_url="wss://test/cdp/sess_replay_test",
+    )
+
+    mock_start_resp = MagicMock()
+    mock_start_resp.status_code = 201
+    mock_start_resp.json.return_value = {
+        "replay_id": "rep_abc_789",
+        "replay_view_url": "https://api.onkernel.com/browser/replays?replay_id=rep_abc_789",
+    }
+
+    mock_stop_resp = MagicMock()
+    mock_stop_resp.status_code = 200
+    mock_stop_resp.json.return_value = {
+        "status": "stopped",
+        "replay_id": "rep_abc_789",
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.side_effect = [mock_start_resp, mock_stop_resp]
+
+        start_res = await manager.start_replay("sess_replay_test", framerate=15)
+        assert start_res["replay_id"] == "rep_abc_789"
+        assert manager.active_session.replay_id == "rep_abc_789"
+
+        stop_res = await manager.stop_replay("sess_replay_test", "rep_abc_789")
+        assert stop_res["status"] == "stopped"
+
+        assert mock_post.call_count == 2
+        first_call = mock_post.call_args_list[0]
+        assert "https://api.onkernel.com/browsers/sess_replay_test/replays" in first_call.args[0]
+        assert first_call.kwargs["json"]["framerate"] == 15
+
+        second_call = mock_post.call_args_list[1]
+        assert "https://api.onkernel.com/browsers/sess_replay_test/replays/rep_abc_789/stop" in second_call.args[0]
+
+
+@pytest.mark.asyncio
+async def test_kernel_browser_manager_telemetry_events():
+    """Tests get_telemetry_events API call against Kernel."""
+    manager = KernelBrowserManager(api_key="test_key", base_url="https://api.onkernel.com")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = [
+        {"seq": 1, "category": "console", "type": "log", "message": "Loaded"},
+        {"seq": 2, "category": "network", "type": "response", "url": "https://flights.google.com"},
+    ]
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_resp) as mock_get:
+        events = await manager.get_telemetry_events("sess_tel_test", categories=["console", "network"])
+        assert len(events) == 2
+        assert events[0]["category"] == "console"
+        assert events[1]["category"] == "network"
+
+        mock_get.assert_called_once()
+        args, kwargs = mock_get.call_args
+        assert "https://api.onkernel.com/browsers/sess_tel_test/telemetry/events" in args[0]
+        assert kwargs["params"]["category"] == "console,network"
+
+
+@pytest.mark.asyncio
+async def test_vm_router_replay_and_telemetry_endpoints():
+    """Tests POST /api/v1/vm/replays/start, stop, and GET /api/v1/vm/telemetry/events."""
+    from httpx import AsyncClient, ASGITransport
+    from src.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Replay start with simulated/no session returns structured json
+        resp = await ac.post("/api/v1/vm/replays/start", json={"session_id": "mock_test_sess"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+        stop_resp = await ac.post("/api/v1/vm/replays/stop", json={"session_id": "mock_test_sess", "replay_id": "rep_1"})
+        assert stop_resp.status_code == 200
+        assert stop_resp.json()["status"] == "stopped"
+
+        tel_resp = await ac.get("/api/v1/vm/telemetry/events?session_id=mock_test_sess")
+        assert tel_resp.status_code == 200
+        assert tel_resp.json()["status"] == "success"
+

@@ -6,6 +6,7 @@ import { BACKEND_URL } from "@/lib/config";
 
 interface KernelBrowserViewerProps {
   liveViewUrl: string;
+  replayViewUrl?: string;
   taskTitle?: string;
   sessionId?: string;
   onClose: () => void;
@@ -14,6 +15,7 @@ interface KernelBrowserViewerProps {
 
 export function KernelBrowserViewer({
   liveViewUrl,
+  replayViewUrl,
   taskTitle = "Autonomous Cloud Browser Task",
   sessionId,
   onClose,
@@ -21,6 +23,7 @@ export function KernelBrowserViewer({
 }: KernelBrowserViewerProps) {
   const [isIframeLoaded, setIsIframeLoaded] = useState(false);
   const [isTerminating, setIsTerminating] = useState(false);
+  const [viewMode, setViewMode] = useState<"live" | "replay">("live");
 
   const handleClose = async () => {
     setIsTerminating(true);
@@ -58,15 +61,40 @@ export function KernelBrowserViewer({
               ({taskTitle})
             </span>
           </div>
-          <span className="hidden sm:inline-flex text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
-            Live Stream
-          </span>
+          {replayViewUrl ? (
+            <div className="flex items-center rounded-lg bg-muted p-0.5 border border-border text-[11px]">
+              <button
+                onClick={() => setViewMode("live")}
+                className={`px-2 py-0.5 rounded-md transition-colors ${
+                  viewMode === "live"
+                    ? "bg-background text-foreground shadow-xs font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Live View
+              </button>
+              <button
+                onClick={() => setViewMode("replay")}
+                className={`px-2 py-0.5 rounded-md transition-colors ${
+                  viewMode === "replay"
+                    ? "bg-background text-foreground shadow-xs font-medium"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Replay Video
+              </button>
+            </div>
+          ) : (
+            <span className="hidden sm:inline-flex text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+              Live Stream
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           {/* Open in New Tab */}
           <a
-            href={liveViewUrl}
+            href={viewMode === "replay" && replayViewUrl ? replayViewUrl : liveViewUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="h-7 w-7 rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
@@ -87,18 +115,23 @@ export function KernelBrowserViewer({
         </div>
       </div>
 
-      {/* Embedded Live View Iframe */}
+      {/* Embedded Live View / Replay Iframe */}
       <div className="flex-1 w-full bg-neutral-950 relative min-h-0">
         {!isIframeLoaded && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-neutral-400 text-xs z-10 bg-neutral-950">
             <RefreshCw className="w-5 h-5 animate-spin text-primary" />
-            <span>Connecting to Kernel cloud browser live view...</span>
+            <span>
+              {viewMode === "replay"
+                ? "Loading Kernel session video replay..."
+                : "Connecting to Kernel cloud browser live view..."}
+            </span>
           </div>
         )}
         <iframe
-          src={liveViewUrl}
+          key={viewMode}
+          src={viewMode === "replay" && replayViewUrl ? replayViewUrl : liveViewUrl}
           className="w-full h-full border-0 bg-neutral-950"
-          title="Kernel AI Cloud Browser Live Stream"
+          title="Kernel AI Cloud Browser View"
           allow="autoplay; clipboard-read; clipboard-write; fullscreen"
           onLoad={() => setIsIframeLoaded(true)}
         />

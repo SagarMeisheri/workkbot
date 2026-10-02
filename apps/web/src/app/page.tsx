@@ -34,6 +34,7 @@ export default function WorkspacePage() {
     active: boolean;
     sessionId?: string;
     liveViewUrl?: string;
+    replayViewUrl?: string;
     task?: string;
   }>({ active: false });
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -63,6 +64,7 @@ export default function WorkspacePage() {
               active: true,
               sessionId: data.session_id,
               liveViewUrl: data.live_view_url,
+              replayViewUrl: data.replay_view_url,
               task: data.task,
             });
             // Auto open the split view canvas when a browser session becomes active
@@ -622,6 +624,7 @@ export default function WorkspacePage() {
               {browserSession.liveViewUrl ? (
                 <KernelBrowserViewer
                   liveViewUrl={browserSession.liveViewUrl}
+                  replayViewUrl={browserSession.replayViewUrl}
                   taskTitle={browserSession.task || "Flight Price Search"}
                   sessionId={browserSession.sessionId}
                   token={user?.access_token}

@@ -101,6 +101,8 @@ try:
                 "flights": flights,
                 "dom_context": result.get("dom_context"),
                 "live_view_url": result.get("live_view_url"),
+                "replay_view_url": result.get("replay_view_url"),
+                "replay_id": result.get("replay_id"),
                 "has_screenshot": result.get("screenshot_b64") is not None,
                 "screenshot_b64": result.get("screenshot_b64"),
                 "is_simulated": result.get("is_simulated", False),

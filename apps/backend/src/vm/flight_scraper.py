@@ -23,7 +23,7 @@ logger = logging.getLogger("workkbot.flight_scraper")
 class FlightPriceScraper:
     """Automates dynamic public flight price queries for any route over Kernel CDP."""
 
-    DEFAULT_MAX_TOOL_CALLS: int = 10
+    DEFAULT_MAX_TOOL_CALLS: int = 20
 
     def __init__(self, manager: Optional[KernelBrowserManager] = None):
         self.manager = manager or kernel_browser_manager
@@ -34,20 +34,30 @@ class FlightPriceScraper:
         destination: str,
         date: Optional[str] = None,
         non_stop_only: bool = False,
-        max_tool_calls: int = 10,
+        max_tool_calls: int = 20,
     ) -> Dict[str, Any]:
         """
         Executes a dynamic flight search for any route (e.g. BOM to DEL, BLR to DXB, etc.).
         Connects to Kernel cloud Chromium over CDP and extracts live flight listings from the DOM.
-        Enforces a hard limit of max 10 tool calls in the agentic browser loop.
+        Enforces a hard limit of max 20 tool calls in the agentic browser loop.
         """
         flight_date = date or (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
         origin_code = origin.strip().upper()
         dest_code = destination.strip().upper()
 
-        session = await self.manager.create_session()
+        session = await self.manager.create_session(timeout_seconds=300)
         self.manager.active_task = f"Flight Search: {origin_code} -> {dest_code} ({flight_date})"
-        logger.info("Initiating flight search %s -> %s on date %s (session=%s)", origin_code, dest_code, flight_date, session.session_id)
+        logger.info("Initiating flight search %s -> %s on date %s (session=%s, telemetry=%s)", origin_code, dest_code, flight_date, session.session_id, session.telemetry_enabled)
+
+        # Start browser replay recording
+        replay_id: Optional[str] = None
+        try:
+            replay_info = await self.manager.start_replay(session.session_id)
+            if replay_info:
+                replay_id = replay_info.get("replay_id")
+                logger.info("Started session replay recording: %s", replay_id)
+        except Exception as replay_start_err:
+            logger.warning("Could not start replay for session %s: %s", session.session_id, replay_start_err)
 
         try:
             try:
@@ -63,6 +73,9 @@ class FlightPriceScraper:
                     "tool_calls_count": 0,
                     "max_tool_calls": self.DEFAULT_MAX_TOOL_CALLS,
                     "session_id": session.session_id,
+                    "live_view_url": session.live_view_url,
+                    "replay_view_url": session.replay_view_url,
+                    "replay_id": replay_id,
                     "screenshot_b64": None,
                     "error": "Playwright is required for browser automation.",
                 }
@@ -78,16 +91,16 @@ class FlightPriceScraper:
                 # Navigate directly to Google Flights base homepage without query parameters
                 base_flights_url = "https://www.google.com/travel/flights"
                 logger.info("Navigating to clean Google Flights home: %s", base_flights_url)
-                await page.goto(base_flights_url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(base_flights_url, wait_until="domcontentloaded", timeout=60000)
                 await page.wait_for_timeout(2000)
 
-                # Strict tool call cap: max 10 tool calls
+                # Strict tool call cap: max 20 tool calls
                 MAX_TOOL_CALLS = max(1, min(max_tool_calls, self.DEFAULT_MAX_TOOL_CALLS))
                 tool_calls_count = 0
 
                 logger.info("Entering agentic browser loop (max_tool_calls=%d)", MAX_TOOL_CALLS)
 
-                # Agentic Loop: LLM observes real Playwright DOM accessibility tree and decides actions (max 10 tool calls)
+                # Agentic Loop: LLM observes real Playwright DOM accessibility tree and decides actions (max 20 tool calls)
                 while tool_calls_count < MAX_TOOL_CALLS:
                     # Early exit if search results are already loaded on the page
                     try:
@@ -139,7 +152,7 @@ class FlightPriceScraper:
                         if action_type == "click":
                             loc = await self._resolve_locator(page, target)
                             if loc is not None:
-                                await loc.click(timeout=4000)
+                                await loc.click(timeout=8000)
                             else:
                                 if any(w in target.lower() for w in ["search", "explore", "done", "enter"]):
                                     await page.keyboard.press("Enter")
@@ -151,7 +164,7 @@ class FlightPriceScraper:
                             loc = await self._resolve_locator(page, target)
                             if loc is not None:
                                 try:
-                                    await loc.click(timeout=3000)
+                                    await loc.click(timeout=6000)
                                     await page.wait_for_timeout(300)
                                 except Exception:
                                     pass
@@ -180,7 +193,7 @@ class FlightPriceScraper:
 
                 # Wait for any in-flight results to settle
                 try:
-                    await page.wait_for_selector('[role="listitem"], li, body', timeout=8000)
+                    await page.wait_for_selector('[role="listitem"], li, body', timeout=15000)
                     await page.wait_for_timeout(2000)
                 except Exception:
                     pass
@@ -265,6 +278,8 @@ class FlightPriceScraper:
                     "dom_context": dom_context[:12000] if dom_context else None,
                     "session_id": session.session_id,
                     "live_view_url": session.live_view_url,
+                    "replay_view_url": session.replay_view_url,
+                    "replay_id": replay_id,
                     "screenshot_b64": screenshot_b64,
                     "is_simulated": False,
                 }
@@ -278,14 +293,24 @@ class FlightPriceScraper:
                 "date": flight_date,
                 "flights": [],
                 "tool_calls_count": locals().get("tool_calls_count", 0),
-                "max_tool_calls": 10,
+                "max_tool_calls": MAX_TOOL_CALLS,
                 "session_id": session.session_id,
                 "live_view_url": session.live_view_url,
+                "replay_view_url": session.replay_view_url,
+                "replay_id": replay_id,
                 "screenshot_b64": None,
                 "error": str(e),
                 "is_simulated": False,
             }
         finally:
+            if replay_id:
+                try:
+                    stop_info = await self.manager.stop_replay(session.session_id, replay_id)
+                    if stop_info and stop_info.get("replay_view_url"):
+                        session.replay_view_url = stop_info.get("replay_view_url")
+                        logger.info("Stopped session replay recording: %s (view_url=%s)", replay_id, session.replay_view_url)
+                except Exception as replay_err:
+                    logger.warning("Error stopping replay %s for session %s: %s", replay_id, session.session_id, replay_err)
             await self.manager.close_session(session.session_id)
 
     async def _decide_next_action(
@@ -295,12 +320,12 @@ class FlightPriceScraper:
         date: str,
         dom_snapshot: str,
         step_number: int,
-        max_steps: int = 10,
+        max_steps: int = 20,
     ) -> Dict[str, Any]:
         """
         Uses Gemini LLM to analyze the live Playwright DOM accessibility tree snapshot
         and autonomously decide the next browser interaction (click, type, press_key, done)
-        enforcing a hard limit of max_steps (default: 10).
+        enforcing a hard limit of max_steps (default: 20).
         """
         if step_number > max_steps:
             logger.info("Reached maximum tool calls limit (%d/%d). Terminating loop.", step_number - 1, max_steps)

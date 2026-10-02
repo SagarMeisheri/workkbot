@@ -34,6 +34,7 @@ try:
     )
     from src.mcp.tools import dynamic_mcp_toolset
     from src.agent.tools.flight_tools import flight_tool
+    from src.agent.tools.zoho_tools import zoho_login_tool, zoho_browse_tool
 
     # Canonical Google ADK 2.0 LlmAgent instance with dynamic MCP toolset and autonomous browser tools
     root_agent = Agent(
@@ -41,13 +42,14 @@ try:
         model=settings.DEFAULT_MODEL,
         description="Intelligent enterprise AI assistant.",
         instruction=WORKKBOT_SYSTEM_INSTRUCTION,
-        tools=[dynamic_mcp_toolset, flight_tool],
+        tools=[dynamic_mcp_toolset, flight_tool, zoho_login_tool, zoho_browse_tool],
         before_model_callback=pii_anonymize_callback,
         before_tool_callback=tool_rehydration_callback,
         after_tool_callback=tool_output_mask_callback,
     )
 except ImportError:
     from src.agent.tools.flight_tools import flight_tool
+    from src.agent.tools.zoho_tools import zoho_login_tool, zoho_browse_tool
 
     # Fallback definition when google-adk is not yet synced in local runner
     class _LlmAgentFallback:
